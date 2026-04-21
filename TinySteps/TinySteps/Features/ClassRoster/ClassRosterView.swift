@@ -9,6 +9,7 @@ struct ClassRosterView: View {
     let selectedContextSubtitle: String
     let onShowClassSwitcher: () -> Void
     let onShowClassSettings: () -> Void
+    let onCaptureImage: ([ClassRosterStudent]) -> Void
     let canShowClassSwitcher: Bool
     let onTapStudent: (ClassRosterStudent) -> Void
     let classesService: ClassesService
@@ -27,6 +28,7 @@ struct ClassRosterView: View {
         faceEnrollmentStore: FaceEnrollmentStore,
         onShowClassSwitcher: @escaping () -> Void,
         onShowClassSettings: @escaping () -> Void,
+        onCaptureImage: @escaping ([ClassRosterStudent]) -> Void,
         onTapStudent: @escaping (ClassRosterStudent) -> Void
     ) {
         self.session = session
@@ -39,6 +41,7 @@ struct ClassRosterView: View {
         self.faceEnrollmentStore = faceEnrollmentStore
         self.onShowClassSwitcher = onShowClassSwitcher
         self.onShowClassSettings = onShowClassSettings
+        self.onCaptureImage = onCaptureImage
         self.onTapStudent = onTapStudent
         _model = State(
             initialValue: ClassRosterModel(
@@ -176,7 +179,14 @@ struct ClassRosterView: View {
 
                 Spacer()
 
-                Button(action: onShowClassSettings) {
+                Menu {
+                    Button("Capture image") {
+                        onCaptureImage(model.students)
+                    }
+                    .disabled(classContext == .allClasses)
+
+                    Button("Class settings", action: onShowClassSettings)
+                } label: {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16))
                         .foregroundStyle(.white)

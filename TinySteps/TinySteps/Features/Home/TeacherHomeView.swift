@@ -10,12 +10,14 @@ struct TeacherHomeView: View {
     let canShowClassSwitcher: Bool
     let classesService: ClassesService
     let faceEnrollmentStore: FaceEnrollmentStore
+    let faceCaptureDraftStore: FaceCaptureDraftStore
     let onShowClassSwitcher: () -> Void
     let onSignOut: () -> Void
 
     @State private var selectedTab: Int = 2
     @State private var selectedStudent: ClassRosterStudent?
     @State private var rosterReloadToken = UUID()
+    @State private var captureSession: FaceCaptureSession?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -44,6 +46,16 @@ struct TeacherHomeView: View {
                 onShowClassSettings: {
                     selectedStudent = nil
                 },
+                onCaptureImage: { students in
+                    guard let selectedClass else {
+                        return
+                    }
+                    captureSession = FaceCaptureSession(
+                        classID: selectedClass.id,
+                        className: selectedContextTitle,
+                        rosterSnapshot: students.map(FaceCaptureStudentSnapshot.init)
+                    )
+                },
                 onTapStudent: { selectedStudent = $0 }
             )
             .id(rosterReloadToken)
@@ -57,6 +69,17 @@ struct TeacherHomeView: View {
             selectedTab = 2
         }
         .toolbar(.visible, for: .tabBar)
+            .fullScreenCover(item: $captureSession) { selectedCaptureSession in
+                FaceCaptureView(
+                    session: session,
+                    captureSession: selectedCaptureSession,
+                faceEnrollmentStore: faceEnrollmentStore,
+                draftStore: faceCaptureDraftStore,
+                onSaved: {
+                    self.captureSession = nil
+                }
+            )
+        }
         .sheet(item: $selectedStudent) { student in
             ClassRosterStudentSetupSheet(
                 student: student,
@@ -100,11 +123,12 @@ struct TeacherHomeView_Previews: PreviewProvider {
             selectedContextTitle: "All Classes",
             selectedContextSubtitle: "3 classes",
             canShowClassSwitcher: true,
-            classesService: MBClassesService.preview(),
-            faceEnrollmentStore: FaceEnrollmentStoreUnavailable(),
-            onShowClassSwitcher: {},
-            onSignOut: {}
-        )
+                classesService: MBClassesService.preview(),
+                faceEnrollmentStore: FaceEnrollmentStoreUnavailable(),
+                faceCaptureDraftStore: InMemoryFaceCaptureDraftStore(),
+                onShowClassSwitcher: {},
+                onSignOut: {}
+            )
+        }
     }
-}
 #endif

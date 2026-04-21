@@ -1,7 +1,6 @@
 import Foundation
-import ImageIO
-import UIKit
 import Vision
+import CoreML
 
 struct FaceEnrollmentEmbeddingResult {
     let embeddings: Data
@@ -13,161 +12,105 @@ struct FaceEnrollmentEmbeddingResult {
 
 enum FaceEnrollmentEmbeddingExtractorError: LocalizedError {
     case noPhotos
-    case cannotOrientImage(index: Int)
-    case noFeaturePrintObservation(index: Int)
-    case revisionFallbackFailed(index: Int, attempts: [String])
+    case missingPhotoOrientData(index: Int)
+    case noFaces(index: Int)
+    case invalidAlignment(index: Int)
+    case embeddingGenerationFailed(index: Int, reason: String)
+    case mismatchedVectorLength(expected: Int, actual: Int, index: Int)
     case unsupportedElementType(rawValue: Int)
-    case vectorLengthMismatch(first: Int, next: Int, index: Int)
+    case vectorDataSizeMismatch(expectedBytes: Int, actualBytes: Int)
 
     var errorDescription: String? {
         switch self {
         case .noPhotos:
             return "No photos available for face enrollment embeddings."
-        case .cannotOrientImage(let index):
+        case .missingPhotoOrientData(let index):
             return "Could not normalise image \(index + 1)."
-        case .noFeaturePrintObservation(let index):
-            return "Vision did not return a feature print for image \(index + 1)."
-        case .revisionFallbackFailed(let index, let attempts):
-            return "Image \(index + 1) feature extraction failed: \(attempts.joined(separator: "; "))."
+        case .noFaces(let index):
+            return "No face detected in image \(index + 1)."
+        case .invalidAlignment(let index):
+            return "Could not align the face in image \(index + 1)."
+        case .embeddingGenerationFailed(let index, let reason):
+            return "Failed to generate embedding for image \(index + 1): \(reason)."
+        case .mismatchedVectorLength(let expected, let actual, let index):
+            return "Face embedding \(index + 1) has unexpected length \(actual) (expected \(expected))."
         case .unsupportedElementType(let rawValue):
             return "Unsupported embedding element type: \(rawValue)."
-        case .vectorLengthMismatch(let first, let next, let index):
-            return "Inconsistent embeddings at image \(index + 1): got \(next), expected \(first)."
+        case .vectorDataSizeMismatch(let expectedBytes, let actualBytes):
+            return "Embedding byte count is invalid (\(actualBytes) bytes, expected \(expectedBytes) bytes)."
         }
     }
 }
 
-// Path A from the FaceTagging experiment: Vision feature-print embeddings.
-// We keep this in a separate persistence utility so enrollment can evolve later
-// without leaking FaceID data-model concerns into the setup view.
 enum FaceEnrollmentEmbeddingExtractor {
-    private static let requestRevisions: [Int] = [
-        VNGenerateImageFeaturePrintRequestRevision2,
-        VNGenerateImageFeaturePrintRequestRevision1
-    ]
-
     static func extractEmbeddings(from photos: [UIImage]) async throws -> FaceEnrollmentEmbeddingResult {
-        return try extractEmbeddingsSync(from: photos)
-    }
+        let normalizedPhotos = photos
+            .compactMap { photo in FaceCropper.fixedOrientation(photo) }
 
-    private static func extractEmbeddingsSync(from photos: [UIImage]) throws -> FaceEnrollmentEmbeddingResult {
-        guard photos.isEmpty == false else {
+        guard normalizedPhotos.isEmpty == false else {
             throw FaceEnrollmentEmbeddingExtractorError.noPhotos
         }
 
-        var merged = Data()
-        var expectedVectorLength: Int?
-        var elementType: Int?
-        var usedRevision: Int?
+        guard normalizedPhotos.count == photos.count else {
+            throw FaceEnrollmentEmbeddingExtractorError.missingPhotoOrientData(index: 0)
+        }
 
-        for (index, photo) in photos.enumerated() {
-            guard let cgImage = FaceCropper.fixedOrientation(photo) else {
-                throw FaceEnrollmentEmbeddingExtractorError.cannotOrientImage(index: index)
+        let aligner = FaceAligner()
+        let embedder = try MLFaceEmbedder()
+
+        var allEmbeddings = Data()
+        var vectorLength: Int?
+        var vectorBytes: Int?
+
+        for (index, cgImage) in normalizedPhotos.enumerated() {
+            let observations = try await FaceDetector.detectFaces(in: cgImage)
+            guard let observation = observations.max(by: { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height }) else {
+                throw FaceEnrollmentEmbeddingExtractorError.noFaces(index: index)
             }
 
-            let extracted = try featurePrint(
-                from: cgImage,
-                index: index
-            )
-            let printVectorLength = extracted.elementCount
-            let printElementType = extracted.elementType
+            let alignedFaces = try aligner.alignAll(in: cgImage, observations: [observation])
+            guard let aligned = alignedFaces.first else {
+                throw FaceEnrollmentEmbeddingExtractorError.invalidAlignment(index: index)
+            }
 
-            if let expectedVectorLength {
-                if printVectorLength != expectedVectorLength {
-                    throw FaceEnrollmentEmbeddingExtractorError.vectorLengthMismatch(
-                        first: expectedVectorLength,
-                        next: printVectorLength,
+            let embedding = try await embedder.embed(aligned)
+            guard embedding.elementType == FaceIDModelContainer.requiredElementType else {
+                throw FaceEnrollmentEmbeddingExtractorError.unsupportedElementType(rawValue: embedding.elementType)
+            }
+
+            if let expectedLength = vectorLength {
+                if embedding.vectorLength != expectedLength {
+                    throw FaceEnrollmentEmbeddingExtractorError.mismatchedVectorLength(
+                        expected: expectedLength,
+                        actual: embedding.vectorLength,
                         index: index
                     )
                 }
             } else {
-                expectedVectorLength = printVectorLength
+                vectorLength = embedding.vectorLength
+                vectorBytes = embedding.vectorLength * MemoryLayout<Float32>.size
             }
 
-            if let elementType {
-                if printElementType != elementType {
-                    throw FaceEnrollmentEmbeddingExtractorError.unsupportedElementType(rawValue: printElementType)
-                }
-            } else {
-                elementType = printElementType
-            }
-
-            if usedRevision == nil {
-                usedRevision = extracted.revision
-            }
-
-            merged.append(extracted.data)
+            allEmbeddings.append(embedding.data)
         }
 
-        guard let expectedVectorLength else {
+        guard let expectedBytes = vectorBytes, let expectedLength = vectorLength else {
             throw FaceEnrollmentEmbeddingExtractorError.noPhotos
         }
-        guard let elementType else {
-            throw FaceEnrollmentEmbeddingExtractorError.unsupportedElementType(rawValue: -1)
+        let expectedByteCount = normalizedPhotos.count * expectedBytes
+        guard allEmbeddings.count == expectedByteCount else {
+            throw FaceEnrollmentEmbeddingExtractorError.vectorDataSizeMismatch(
+                expectedBytes: expectedByteCount,
+                actualBytes: allEmbeddings.count
+            )
         }
 
         return FaceEnrollmentEmbeddingResult(
-            embeddings: merged,
+            embeddings: allEmbeddings,
             embeddingCount: photos.count,
-            vectorLength: expectedVectorLength,
-            elementType: elementType,
-            modelIdentifier: "com.fariasystems.faceid.vnFeaturePrint.revision.\(usedRevision ?? VNGenerateImageFeaturePrintRequestRevision2)"
+            vectorLength: expectedLength,
+            elementType: FaceIDModelContainer.requiredElementType,
+            modelIdentifier: FaceIDModelContainer.requiredModelIdentifier
         )
-    }
-
-    private static func featurePrint(
-        from cgImage: CGImage,
-        index: Int
-    ) throws -> (data: Data, elementCount: Int, elementType: Int, revision: Int) {
-        var attempts: [String] = []
-        for revision in requestRevisions {
-            do {
-                let request = VNGenerateImageFeaturePrintRequest()
-                request.revision = revision
-
-                let handler = VNImageRequestHandler(
-                    cgImage: cgImage,
-                    orientation: CGImagePropertyOrientation.up
-                )
-                try handler.perform([request])
-
-                guard let observation = request.results?.compactMap({ $0 as? VNFeaturePrintObservation }).first else {
-                    throw FaceEnrollmentEmbeddingExtractorError.noFeaturePrintObservation(index: index)
-                }
-
-                let elementType = Int(observation.elementType.rawValue)
-                guard elementType == Int(VNElementType.float.rawValue) else {
-                    throw FaceEnrollmentEmbeddingExtractorError.unsupportedElementType(rawValue: elementType)
-                }
-
-                return (observation.data, observation.elementCount, elementType, revision)
-            } catch {
-                attempts.append("rev=\(revision): \(error.localizedDescription)")
-            }
-        }
-
-        throw FaceEnrollmentEmbeddingExtractorError.revisionFallbackFailed(
-            index: index,
-            attempts: attempts
-        )
-    }
-}
-
-private enum FaceCropper {
-    // Keep this local util here so this module does not depend on app image
-    // helpers outside FaceID persistence.
-    static func fixedOrientation(_ image: UIImage) -> CGImage? {
-        if image.imageOrientation == .up, let cgImage = image.cgImage {
-            return cgImage
-        }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = image.scale
-        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
-        let upright = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }
-
-        return upright.cgImage
     }
 }

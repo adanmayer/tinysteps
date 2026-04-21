@@ -18,6 +18,7 @@ enum FaceEnrollmentStoreError: LocalizedError {
 protocol FaceEnrollmentStore {
     func statuses(for studentKeys: [String]) async throws -> [String: FaceEnrollmentStatus]
     func status(for studentKey: String) async throws -> FaceEnrollmentStatus
+    func snapshots(for studentKeys: [String]) async throws -> [FaceEnrollmentSnapshot]
     func deleteEnrollment(for studentKey: String) async throws
     func upsertEnrollment(
         for studentKey: String,
@@ -61,6 +62,29 @@ final class SwiftDataFaceEnrollmentStore: FaceEnrollmentStore {
         }
 
         return result
+    }
+
+    func snapshots(for studentKeys: [String]) async throws -> [FaceEnrollmentSnapshot] {
+        guard studentKeys.isEmpty == false else {
+            return []
+        }
+
+        let identities = try modelContext.fetch(FetchDescriptor<EnrolledIdentity>())
+        let keys = Set(studentKeys)
+        let matching = identities.filter { keys.contains($0.studentKey) }
+
+        var seenKeys: Set<String> = []
+        var snapshots: [FaceEnrollmentSnapshot] = []
+
+        for identity in matching.sorted(by: { $0.updatedAt > $1.updatedAt }) {
+            if seenKeys.contains(identity.studentKey) {
+                continue
+            }
+            seenKeys.insert(identity.studentKey)
+            snapshots.append(FaceEnrollmentSnapshot(from: identity))
+        }
+
+        return snapshots
     }
 
     func status(for studentKey: String) async throws -> FaceEnrollmentStatus {
@@ -161,6 +185,10 @@ final class SwiftDataFaceEnrollmentStore: FaceEnrollmentStore {
             return .invalid(reason: "Vector length too short")
         }
 
+        guard identity.elementType == FaceIDModelContainer.requiredElementType else {
+            return .invalid(reason: "Unsupported embedding type")
+        }
+
         guard identity.modelIdentifier.hasPrefix(FaceIDModelContainer.requiredModelIdentifier) else {
             return .invalid(reason: "Wrong model version")
         }
@@ -187,6 +215,10 @@ struct FaceEnrollmentStoreUnavailable: FaceEnrollmentStore {
         .unavailable
     }
 
+    func snapshots(for studentKeys: [String]) async throws -> [FaceEnrollmentSnapshot] {
+        []
+    }
+
     func deleteEnrollment(for studentKey: String) async throws {
     }
 
@@ -200,5 +232,25 @@ struct FaceEnrollmentStoreUnavailable: FaceEnrollmentStore {
         modelIdentifier: String
     ) async throws {
         throw FaceEnrollmentStoreError.unavailable
+    }
+}
+
+struct FaceEnrollmentSnapshot: Sendable, Equatable {
+    let studentKey: String
+    let displayName: String
+    let embeddings: Data
+    let embeddingCount: Int
+    let elementType: Int
+    let vectorLength: Int
+    let modelIdentifier: String
+
+    init(from identity: EnrolledIdentity) {
+        self.studentKey = identity.studentKey
+        self.displayName = identity.displayName
+        self.embeddings = identity.embeddings
+        self.embeddingCount = identity.embeddingCount
+        self.elementType = identity.elementType
+        self.vectorLength = identity.vectorLength
+        self.modelIdentifier = identity.modelIdentifier
     }
 }

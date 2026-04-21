@@ -10,6 +10,7 @@ struct SignedInRootView: View {
     private let parentAssociationService: ParentAssociationService
     private let classesService: ClassesService
     private let faceEnrollmentStore: FaceEnrollmentStore
+    private let faceCaptureDraftStore: FaceCaptureDraftStore
     private let onSignOut: () -> Void
 
     init(
@@ -30,6 +31,7 @@ struct SignedInRootView: View {
         self.parentAssociationService = dependencies.parentAssociationService
         self.classesService = dependencies.classesService
         self.faceEnrollmentStore = dependencies.faceEnrollmentStore
+        self.faceCaptureDraftStore = dependencies.faceCaptureDraftStore
         self.onSignOut = onSignOut
     }
 
@@ -68,6 +70,7 @@ struct SignedInRootView: View {
                             canShowClassSwitcher: sessionModel.canShowClassSwitcher,
                             classesService: classesService,
                             faceEnrollmentStore: faceEnrollmentStore,
+                            faceCaptureDraftStore: faceCaptureDraftStore,
                             onShowClassSwitcher: { isShowingClassSwitcher = true },
                             onSignOut: { isShowingSignOutConfirmation = true }
                         )

@@ -17,6 +17,7 @@ final class AppDependencies {
     let parentAssociationService: ParentAssociationService
     let portfolioService: PortfolioService
     let faceEnrollmentStore: FaceEnrollmentStore
+    let faceCaptureDraftStore: FaceCaptureDraftStore
     let childSelectionStore: ChildSelectionStore
     let classSelectionStore: ClassSelectionStore
 
@@ -29,6 +30,7 @@ final class AppDependencies {
         parentAssociationService: ParentAssociationService,
         portfolioService: PortfolioService,
         faceEnrollmentStore: FaceEnrollmentStore,
+        faceCaptureDraftStore: FaceCaptureDraftStore,
         childSelectionStore: ChildSelectionStore,
         classSelectionStore: ClassSelectionStore
     ) {
@@ -40,6 +42,7 @@ final class AppDependencies {
         self.parentAssociationService = parentAssociationService
         self.portfolioService = portfolioService
         self.faceEnrollmentStore = faceEnrollmentStore
+        self.faceCaptureDraftStore = faceCaptureDraftStore
         self.childSelectionStore = childSelectionStore
         self.classSelectionStore = classSelectionStore
     }
@@ -59,6 +62,8 @@ final class AppDependencies {
             demoDataMode: demoDataMode
         )
 
+        let faceCaptureDraftStore: FaceCaptureDraftStore = InMemoryFaceCaptureDraftStore()
+
         return AppDependencies(
             authController: auth.authController,
             accountService: features.accountService,
@@ -68,6 +73,7 @@ final class AppDependencies {
             parentAssociationService: features.parentAssociationService,
             portfolioService: features.portfolioService,
             faceEnrollmentStore: features.faceEnrollmentStore,
+            faceCaptureDraftStore: faceCaptureDraftStore,
             childSelectionStore: session.childSelectionStore,
             classSelectionStore: session.classSelectionStore
         )

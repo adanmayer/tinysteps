@@ -1,13 +1,16 @@
 import Foundation
 import OSLog
 import SwiftData
+import CoreML
 
 enum FaceIDModelContainer {
     private static let log = Logger(subsystem: "co.Faria.MobileManageBac", category: "FaceID")
 
     static let requiredEmbeddingCount = 3
-    static let requiredVectorLength = 64
-    static let requiredModelIdentifier = "com.fariasystems.faceid.vnFeaturePrint"
+    static let requiredEmbeddingDimension = 512
+    static let requiredVectorLength = requiredEmbeddingDimension
+    static let requiredModelIdentifier = "com.fariasystems.faceid.adaface"
+    static let requiredElementType = Int(MLMultiArrayDataType.float32.rawValue)
 
     @MainActor
     static func make() throws -> ModelContainer {
