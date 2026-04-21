@@ -67,8 +67,7 @@ struct IdentityMatcher {
 
             for offset in stride(from: 0, to: rowData.count, by: MemoryLayout<Float>.size) {
                 let value = rowData.withUnsafeBytes { bytes -> Float in
-                    let start = bytes.baseAddress!.advanced(by: offset)
-                    return start.assumeMemoryBound(to: Float.self).pointee
+                    bytes.load(fromByteOffset: offset, as: Float.self)
                 }
                 vector.append(value)
             }

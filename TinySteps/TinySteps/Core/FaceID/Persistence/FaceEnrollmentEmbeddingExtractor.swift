@@ -1,6 +1,7 @@
 import Foundation
 import Vision
 import CoreML
+import UIKit
 
 struct FaceEnrollmentEmbeddingResult {
     let embeddings: Data

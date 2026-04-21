@@ -41,12 +41,15 @@ struct MLFaceEmbedder {
         )
 
         let input = try MLDictionaryFeatureProvider(dictionary: [inputName: featureValue])
-        let output = try await Task.detached {
+        let output = try await MainActor.run {
             try self.model.prediction(from: input)
-        }.value
+        }
 
-        guard let outputFeature = Self.outputFeatureName(from: model).flatMap({ output.featureValue(for: $0) }) ??
-                output.featureValue(for: output.featureDescriptionsByName.keys.first ?? "") else {
+        let outputFeatureName = Self.outputFeatureName(from: model)
+        let outputFeature = outputFeatureName.flatMap({ output.featureValue(for: $0) }) ??
+            output.featureValue(for: output.featureNames.first ?? "")
+
+        guard let outputFeature else {
             throw Error.missingOutput
         }
 
@@ -57,11 +60,32 @@ struct MLFaceEmbedder {
         var vector: [Float] = []
         vector.reserveCapacity(multiArray.count)
         var magnitude: Float = 0
+        let count = multiArray.count
 
-        for index in 0..<multiArray.count {
-            let value = multiArray[index].floatValue
-            vector.append(value)
-            magnitude += value * value
+        switch multiArray.dataType {
+        case .double:
+            let pointer = multiArray.dataPointer.bindMemory(to: Double.self, capacity: count)
+            for index in 0..<count {
+                let value = Float(pointer[index])
+                vector.append(value)
+                magnitude += value * value
+            }
+        case .float32:
+            let pointer = multiArray.dataPointer.bindMemory(to: Float.self, capacity: count)
+            for index in 0..<count {
+                let value = pointer[index]
+                vector.append(value)
+                magnitude += value * value
+            }
+        case .float16:
+            let pointer = multiArray.dataPointer.bindMemory(to: Float16.self, capacity: count)
+            for index in 0..<count {
+                let value = Float(pointer[index])
+                vector.append(value)
+                magnitude += value * value
+            }
+        default:
+            throw Error.outputTypeMismatch
         }
         let scale = magnitude > 0 ? (1 / sqrtf(magnitude)) : 0
         var normalized = vector
@@ -86,6 +110,9 @@ struct MLFaceEmbedder {
     }
 
     private static func findModelPackage() throws -> URL {
+        if let compiledURL = Bundle.main.url(forResource: "FaceEmbedder", withExtension: "mlmodelc") {
+            return compiledURL
+        }
         if let packageURL = Bundle.main.url(forResource: "FaceEmbedder", withExtension: "mlpackage") {
             return packageURL
         }
@@ -104,7 +131,6 @@ struct MLFaceEmbedder {
     }
 
     private static func outputFeatureName(from model: MLModel) -> String? {
-        let outputNames = model.modelDescription.outputDescriptionsByName.keys
-        return outputNames.first(where: { model.modelDescription.outputDescriptionsByName[$0]?.isRequired != false })
+        model.modelDescription.outputDescriptionsByName.keys.first
     }
 }

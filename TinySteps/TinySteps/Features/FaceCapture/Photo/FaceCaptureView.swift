@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UIKit
 import MBAPI
 
 struct FaceCaptureView: View {
@@ -79,6 +80,7 @@ struct FaceCaptureView: View {
                                 displayName: $0.displayName,
                                 firstName: $0.displayName,
                                 initials: "",
+                                avatarURL: nil,
                                 enrollmentStatus: .needsSetup,
                                 todayObservationCount: nil,
                                 presence: .present
@@ -317,6 +319,7 @@ private struct FaceCapturePreview: UIViewRepresentable {
         let view = UIView()
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
+        previewLayer.connection?.videoOrientation = Self.captureOrientation()
         previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
         context.coordinator.layer = previewLayer
@@ -325,6 +328,7 @@ private struct FaceCapturePreview: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.layer?.frame = uiView.bounds
+        context.coordinator.layer?.connection?.videoOrientation = Self.captureOrientation()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -333,5 +337,19 @@ private struct FaceCapturePreview: UIViewRepresentable {
 
     final class Coordinator {
         weak var layer: AVCaptureVideoPreviewLayer?
+    }
+
+    private static func captureOrientation() -> AVCaptureVideoOrientation {
+        let orientation = UIDevice.current.orientation
+        switch orientation {
+        case .landscapeLeft:
+            return .landscapeRight
+        case .landscapeRight:
+            return .landscapeLeft
+        case .portraitUpsideDown:
+            return .portraitUpsideDown
+        default:
+            return .portrait
+        }
     }
 }

@@ -5,6 +5,12 @@ import UIKit
 import ImageIO
 import CoreImage
 import Vision
+import OSLog
+
+private let faceEnrollmentLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "TinySteps",
+    category: "FaceEnrollment"
+)
 
 struct ClassRosterStudentSetupSheet: View {
     let student: ClassRosterStudent
@@ -20,9 +26,12 @@ struct ClassRosterStudentSetupSheet: View {
     @State private var capturedPhotos: [UIImage] = []
     @State private var isSaving = false
     @State private var setupError: String?
+    @State private var setupStatusMessage: String?
     @State private var showsPrivacyInfo = false
     @State private var activeStepGlow = false
     @State private var isReviewMode = false
+    @State private var showsPoseDebug = false
+    @State private var isCompletingEnrollment = false
 
     var body: some View {
         NavigationStack {
@@ -40,6 +49,9 @@ struct ClassRosterStudentSetupSheet: View {
                 }
                 capturedPhotos = []
                 setupError = nil
+                setupStatusMessage = nil
+                showsPoseDebug = false
+                isCompletingEnrollment = false
                 if isReviewMode == false {
                     Task {
                         await cameraManager.start()
@@ -48,11 +60,7 @@ struct ClassRosterStudentSetupSheet: View {
                 }
             }
             .onChange(of: capturedPhotoCount) { _, newCapturedPhotoCount in
-                cameraManager.setPoseRequirement(newCapturedPhotoCount)
-                if newCapturedPhotoCount >= requiredPhotoCount {
-                    isReviewMode = true
-                    cameraManager.stop()
-                }
+                cameraManager.setPoseRequirement(min(newCapturedPhotoCount, requiredPhotoCount - 1))
             }
             .onChange(of: canTakePhoto) { _, newCanTakePhoto in
                 guard newCanTakePhoto else { return }
@@ -87,14 +95,9 @@ struct ClassRosterStudentSetupSheet: View {
                     .padding(.horizontal, 24)
                     .padding(.top, isReviewMode ? 16 : 18)
 
-                if let setupError {
-                    Text(setupError)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 10)
-                }
+                setupFeedback
+                    .padding(.horizontal, 24)
+                    .padding(.top, 10)
 
                 Spacer(minLength: 22)
             }
@@ -392,12 +395,18 @@ struct ClassRosterStudentSetupSheet: View {
                 }
                 .frame(width: 82, height: 82, alignment: .center)
 
-                Text("Captured")
+                if isSaving {
+                    ProgressView()
+                        .tint(Color(hex: "#8DA67A"))
+                        .padding(.top, 2)
+                }
+
+                Text(isSaving ? "Saving" : "Captured")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(hex: "#3A342E"))
                     .multilineTextAlignment(.center)
 
-                Text("This student's face setup is complete.")
+                Text(isSaving ? "Checking the captured images and saving face setup." : "This student's face setup is complete.")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -480,8 +489,27 @@ struct ClassRosterStudentSetupSheet: View {
         }
         .frame(height: 300)
         .overlay(alignment: .bottomLeading) {
-            poseDebugOverlay
-                .padding(10)
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showsPoseDebug.toggle()
+                    }
+                } label: {
+                    Image(systemName: "ant")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#FEF9F0"))
+                        .frame(width: 28, height: 28)
+                        .background(Color.black.opacity(0.38))
+                        .clipShape(RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Toggle pose debug overlay")
+
+                if showsPoseDebug {
+                    poseDebugOverlay
+                }
+            }
+            .padding(10)
         }
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
@@ -582,7 +610,11 @@ struct ClassRosterStudentSetupSheet: View {
     @ViewBuilder
     private var captureRow: some View {
         if isReviewMode {
-            reviewModeActionRow
+            if isSaving {
+                savingEnrollmentRow
+            } else {
+                reviewModeActionRow
+            }
         } else {
             ZStack {
                 HStack {
@@ -616,6 +648,70 @@ struct ClassRosterStudentSetupSheet: View {
             }
             .frame(height: 104)
         }
+    }
+
+    @ViewBuilder
+    private var setupFeedback: some View {
+        if let setupError {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#A92E2E"))
+                    .padding(.top, 1)
+
+                Text(setupError)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: "#7F231F"))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(hex: "#FDECEC"))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Color(hex: "#E4A2A2"), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        } else if let setupStatusMessage {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(Color(hex: "#8DA67A"))
+
+                Text(setupStatusMessage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(hex: "#FFFDF8").opacity(0.86))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var savingEnrollmentRow: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .tint(Color(hex: "#8DA67A"))
+
+            Text(setupStatusMessage ?? "Saving face setup...")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: "#3A342E"))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 104)
+        .padding(.horizontal, 18)
+        .background(Color(hex: "#FFFDF8").opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     private var reviewModeActionRow: some View {
@@ -784,12 +880,12 @@ struct ClassRosterStudentSetupSheet: View {
 
         styleColor = state == .empty ? Color(hex: "#A89E8F") : Color(hex: "#8DA67A")
         return Text(title)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(styleColor)
+            .lineLimit(2)
+            .minimumScaleFactor(0.88)
+            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .center)
             .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-            .frame(maxWidth: .infinity, minHeight: 18, alignment: .center)
     }
 
     private func promptText(for index: Int) -> String {
@@ -850,16 +946,22 @@ struct ClassRosterStudentSetupSheet: View {
         }
 
         guard capturedPhotoCount < requiredPhotoCount else {
-            onSetupCompleted()
+            completeEnrollmentFlow()
             return
         }
 
         setupError = nil
+        setupStatusMessage = nil
         do {
             let capturedPhoto = try await cameraManager.capturePhoto()
             capturedPhotos.append(capturedPhoto)
         } catch {
-            setupError = error.localizedDescription
+            let message = userFacingEnrollmentErrorMessage(
+                for: error,
+                fallback: "The photo could not be captured."
+            )
+            faceEnrollmentLogger.error("Face enrollment photo capture failed for \(student.studentKey, privacy: .private): \(String(describing: error), privacy: .public)")
+            setupError = message
             return
         }
 
@@ -867,6 +969,7 @@ struct ClassRosterStudentSetupSheet: View {
             return
         }
 
+        isReviewMode = true
         await saveEnrollment()
     }
 
@@ -874,8 +977,18 @@ struct ClassRosterStudentSetupSheet: View {
     private func saveEnrollment() async {
         isSaving = true
         setupError = nil
+        setupStatusMessage = "Checking captured photos..."
+        defer {
+            if isCompletingEnrollment == false {
+                isSaving = false
+                setupStatusMessage = nil
+            }
+        }
+
         do {
+            faceEnrollmentLogger.info("Face enrollment save started for \(student.studentKey, privacy: .private)")
             let embeddings = try await FaceEnrollmentEmbeddingExtractor.extractEmbeddings(from: capturedPhotos)
+            setupStatusMessage = "Saving face setup..."
             try await faceEnrollmentStore.upsertEnrollment(
                 for: student.studentKey,
                 displayName: student.displayName,
@@ -885,13 +998,11 @@ struct ClassRosterStudentSetupSheet: View {
                 elementType: embeddings.elementType,
                 modelIdentifier: embeddings.modelIdentifier
             )
-            onSetupCompleted()
+            setupStatusMessage = "Face setup saved."
+            faceEnrollmentLogger.info("Face enrollment save completed for \(student.studentKey, privacy: .private)")
+            completeEnrollmentFlow()
         } catch {
-            if capturedPhotos.count >= requiredPhotoCount {
-                capturedPhotos.removeLast()
-            }
-            setupError = error.localizedDescription
-            isSaving = false
+            handleEnrollmentSaveFailure(error)
         }
     }
 
@@ -903,6 +1014,7 @@ struct ClassRosterStudentSetupSheet: View {
         isReviewMode = false
         capturedPhotos.removeAll()
         setupError = nil
+        setupStatusMessage = nil
         cameraManager.stop()
         Task {
             await cameraManager.start()
@@ -918,14 +1030,75 @@ struct ClassRosterStudentSetupSheet: View {
 
         isSaving = true
         setupError = nil
+        defer {
+            isSaving = false
+        }
 
         do {
             try await faceEnrollmentStore.deleteEnrollment(for: student.studentKey)
-            onSetupCompleted()
+            completeEnrollmentFlow()
         } catch {
-            setupError = error.localizedDescription
-            isSaving = false
+            faceEnrollmentLogger.error("Face enrollment removal failed for \(student.studentKey, privacy: .private): \(String(describing: error), privacy: .public)")
+            setupError = userFacingEnrollmentErrorMessage(
+                for: error,
+                fallback: "Face setup could not be removed."
+            )
         }
+    }
+
+    @MainActor
+    private func handleEnrollmentSaveFailure(_ error: Error) {
+        faceEnrollmentLogger.error("Face enrollment save failed for \(student.studentKey, privacy: .private): \(String(describing: error), privacy: .public)")
+        setupStatusMessage = nil
+        setupError = userFacingEnrollmentErrorMessage(
+            for: error,
+            fallback: "Face setup could not be completed."
+        )
+
+        if capturedPhotos.count >= requiredPhotoCount {
+            capturedPhotos.removeLast()
+        }
+
+        if capturedPhotos.count < requiredPhotoCount {
+            isReviewMode = false
+            Task {
+                if cameraManager.isReady == false || cameraManager.canCapture == false {
+                    await cameraManager.start()
+                }
+                cameraManager.setPoseRequirement(capturedPhotoCount)
+            }
+        }
+    }
+
+    private func userFacingEnrollmentErrorMessage(for error: Error, fallback: String) -> String {
+        let reason: String
+        if let localizedError = error as? LocalizedError,
+           let errorDescription = localizedError.errorDescription,
+           errorDescription.isEmpty == false {
+            reason = errorDescription
+        } else {
+            reason = error.localizedDescription
+        }
+
+        guard reason.isEmpty == false else {
+            return "\(fallback) Please retake the last photo and try again."
+        }
+
+        return "\(fallback) \(reason) Please retake the last photo and try again."
+    }
+
+    @MainActor
+    private func completeEnrollmentFlow() {
+        guard isCompletingEnrollment == false else {
+            return
+        }
+        isCompletingEnrollment = true
+        isReviewMode = true
+        setupError = nil
+        setupStatusMessage = nil
+        cameraManager.stop()
+        onSetupCompleted()
+        onDismiss()
     }
 
     private var displayName: String {
@@ -1052,6 +1225,7 @@ struct ClassRosterStudentSetupSheet: View {
         private let videoOutput = AVCaptureVideoDataOutput()
         private let analysisQueue = DispatchQueue(label: "co.faria.tinysteps.faceenrollment.analysis")
         private var photoContinuation: CheckedContinuation<UIImage, Error>?
+        private var isStopping = false
         private var activeDevice: AVCaptureDevice?
         private var currentPoseStep: PoseStep = .straightAhead
         private var lastLightingSample = Date.distantPast
@@ -1128,18 +1302,32 @@ struct ClassRosterStudentSetupSheet: View {
 
         func stop() {
             sessionQueue.async {
+                guard self.isStopping == false else {
+                    return
+                }
+                self.isStopping = true
+                defer {
+                    self.isStopping = false
+                }
+
                 if let photoContinuation = self.photoContinuation {
                     photoContinuation.resume(throwing: CameraError.sessionInactive)
                 }
                 self.photoContinuation = nil
-                self.session.stopRunning()
-                    DispatchQueue.main.async {
-                        self.isReady = false
-                        self.isCapturing = false
-                        self.currentDevice = nil
-                    }
+                self.videoOutput.setSampleBufferDelegate(nil, queue: nil)
+
+                if self.session.isRunning {
+                    self.session.stopRunning()
+                }
+
+                DispatchQueue.main.async {
+                    self.isReady = false
+                    self.isCapturing = false
+                    self.currentDevice = nil
+                    self.errorMessage = nil
                 }
             }
+        }
 
         func toggleCamera() {
             let nextPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back

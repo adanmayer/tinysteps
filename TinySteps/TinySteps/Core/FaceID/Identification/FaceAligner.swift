@@ -95,14 +95,47 @@ struct FaceAligner {
         return matched
     }
 
-    private func align(image: CGImage, to bounds: CGRect, alignment _: FaceAlignment) -> CGImage? {
+    private func align(image: CGImage, to bounds: CGRect, alignment: FaceAlignment) -> CGImage? {
         let paddedBounds = expanded(bounds: bounds, in: CGSize(width: image.width, height: image.height))
         let roundedBounds = paddedBounds.integral
         guard let faceCrop = image.cropping(to: roundedBounds) else {
             return nil
         }
 
-        return resizeAndNormalize(faceCrop)
+        let alignedFace = alignByEyePose(faceCrop, using: alignment) ?? faceCrop
+        return resizeAndNormalize(alignedFace)
+    }
+
+    private func alignByEyePose(_ image: CGImage, using alignment: FaceAlignment) -> CGImage? {
+        guard let leftEye = alignment.leftEye, let rightEye = alignment.rightEye else {
+            return image
+        }
+
+        let dy = rightEye.y - leftEye.y
+        let dx = rightEye.x - leftEye.x
+        let angle = -atan2(dy, dx)
+
+        guard angle.isFinite, abs(angle) > 0.001 else {
+            return image
+        }
+
+        return rotate(image, by: angle)
+    }
+
+    private func rotate(_ image: CGImage, by radians: CGFloat) -> CGImage? {
+        let uiImage = UIImage(cgImage: image)
+
+        let imageSize = CGSize(width: image.width, height: image.height)
+        let renderer = UIGraphicsImageRenderer(size: imageSize)
+        let rotated = renderer.image { context in
+            let cgContext = context.cgContext
+            cgContext.translateBy(x: imageSize.width / 2, y: imageSize.height / 2)
+            cgContext.rotate(by: radians)
+            cgContext.translateBy(x: -imageSize.width / 2, y: -imageSize.height / 2)
+            uiImage.draw(in: CGRect(origin: .zero, size: imageSize))
+        }
+
+        return rotated.cgImage
     }
 
     private func resizeAndNormalize(_ image: CGImage) -> CGImage? {
@@ -124,9 +157,8 @@ struct FaceAligner {
                 height: targetSize.height
             )
 
-            if let uiImage = UIImage(cgImage: image) {
-                uiImage.draw(in: drawRect)
-            }
+            let uiImage = UIImage(cgImage: image)
+            uiImage.draw(in: drawRect)
         }.cgImage
     }
 

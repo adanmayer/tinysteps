@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Combine
 import UIKit
 
 @MainActor
@@ -136,21 +137,25 @@ final class FaceCaptureCameraController: NSObject,
         }
         photoContinuation = nil
 
-        if let error {
-            isCapturing = false
-            continuation.resume(throwing: error)
-            return
-        }
+        let photoData = photo.fileDataRepresentation()
 
-        guard let data = photo.fileDataRepresentation(),
-              let image = UIImage(data: data) else {
-            isCapturing = false
-            continuation.resume(throwing: CameraError.photoMissing)
-            return
-        }
+        Task { @MainActor in
+            if let error {
+                self.isCapturing = false
+                continuation.resume(throwing: error)
+                return
+            }
 
-        isCapturing = false
-        continuation.resume(returning: image)
+            guard let data = photoData,
+                  let image = UIImage(data: data) else {
+                self.isCapturing = false
+                continuation.resume(throwing: CameraError.photoMissing)
+                return
+            }
+
+            self.isCapturing = false
+            continuation.resume(returning: image)
+        }
     }
 
     private func requestPermission() async -> Bool {
@@ -192,6 +197,14 @@ final class FaceCaptureCameraController: NSObject,
 
         session.addInput(input)
         session.addOutput(photoOutput)
+        if let photoConnection = photoOutput.connection(with: .video) {
+            if photoConnection.isVideoOrientationSupported {
+                photoConnection.videoOrientation = .portrait
+            }
+            if photoConnection.isVideoMirroringSupported {
+                photoConnection.isVideoMirrored = true
+            }
+        }
         activeDevice = device
     }
 

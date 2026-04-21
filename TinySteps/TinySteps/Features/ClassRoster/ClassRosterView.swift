@@ -183,7 +183,7 @@ struct ClassRosterView: View {
                     Button("Capture image") {
                         onCaptureImage(model.students)
                     }
-                    .disabled(classContext == .allClasses)
+                    .disabled(classContext == .allClasses || model.students.isEmpty || model.isLoading)
 
                     Button("Class settings", action: onShowClassSettings)
                 } label: {
