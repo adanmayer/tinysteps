@@ -389,8 +389,27 @@ struct ClassRosterStudentSetupSheet: View {
             }
         }
         .frame(height: 300)
+        .overlay(alignment: .bottomLeading) {
+            poseDebugOverlay
+                .padding(10)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+    }
+
+    private var poseDebugOverlay: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(cameraManager.poseDebugLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Color(hex: "#FEF9F0"))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .padding(8)
+        .background(Color.black.opacity(0.38))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var viewfinderStatusRow: some View {
@@ -829,6 +848,7 @@ struct ClassRosterStudentSetupSheet: View {
         @Published private(set) var currentDevice: AVCaptureDevice?
         @Published private(set) var isLightingGood: Bool? = nil
         @Published private(set) var poseValidationState: PoseValidationState = .unknown
+        @Published private(set) var poseDebugLines: [String] = ["Pose debug: waiting for frame"]
 
         let session = AVCaptureSession()
 
@@ -844,12 +864,16 @@ struct ClassRosterStudentSetupSheet: View {
         private let minimumLightingSampleInterval: TimeInterval = 0.4
         private let minimumPoseSampleInterval: TimeInterval = 0.25
         private let minimumGoodLightLuma: Float = 0.36
-        private let maxHeadAngleDegrees: Double = 16
+        private let maxHeadAngleDegrees: Double = 24
+        private let slightTurnHeadAngleDegrees: Double = 34
         private let straightAheadYawToleranceDegrees: Double = 12
-        private let slightTurnYawMinDegrees: Double = 5
-        private let slightTurnYawMaxDegrees: Double = 45
+        private let slightTurnYawMinDegrees: Double = 12
+        private let slightTurnYawMaxDegrees: Double = 50
+        private let slightTurnCenterXRange: ClosedRange<CGFloat> = 0.18...0.82
+        private let slightTurnCenterYRange: ClosedRange<CGFloat> = 0.20...0.80
         private let smileYawToleranceDegrees: Double = 24
         private let minSmileScore: Double = 0.07
+        private let minimumRelativeFaceDimension: CGFloat = 0.06
 
         var canCapture: Bool {
             isReady && isCapturing == false && session.isRunning
@@ -858,8 +882,14 @@ struct ClassRosterStudentSetupSheet: View {
         func setPoseRequirement(_ step: Int) {
             let normalizedStep = max(0, min(step, 2))
             analysisQueue.async {
-                self.currentPoseStep = PoseStep.from(normalizedStep)
-                self.updatePoseValidationState(.guidance(self.currentPoseStep.label))
+                let poseStep = PoseStep.from(normalizedStep)
+                self.currentPoseStep = poseStep
+                let guidance = PoseValidationState.guidance(poseStep.label)
+                self.updatePoseValidationState(guidance)
+                self.updatePoseDebugLines([
+                    "Pose debug step: \(poseStep.label)",
+                    "State: \(guidance.message)"
+                ])
             }
         }
 
@@ -1189,11 +1219,16 @@ struct ClassRosterStudentSetupSheet: View {
         private func analyzePose(from sampleBuffer: CMSampleBuffer) {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
                 updatePoseValidationState(.unknown)
+                updatePoseDebugLines([
+                    "Pose debug: waiting",
+                    "Frame: no pixel buffer"
+                ])
                 return
             }
 
             let orientation = imageOrientation(for: currentPosition)
-            let request = VNDetectFaceLandmarksRequest()
+            let rectangleRequest = VNDetectFaceRectanglesRequest()
+            let landmarkRequest = VNDetectFaceLandmarksRequest()
             let requestHandler = VNImageRequestHandler(
                 cvPixelBuffer: pixelBuffer,
                 orientation: orientation,
@@ -1201,111 +1236,312 @@ struct ClassRosterStudentSetupSheet: View {
             )
 
             do {
-                try requestHandler.perform([request])
+                try requestHandler.perform([rectangleRequest, landmarkRequest])
             } catch {
                 updatePoseValidationState(.unknown)
+                updatePoseDebugLines([
+                    "Pose debug: vision error",
+                    "Error: \(error.localizedDescription)"
+                ])
                 return
             }
 
-            guard let observations = request.results, observations.isEmpty == false else {
+            guard let poseObservations = rectangleRequest.results, poseObservations.isEmpty == false else {
                 updatePoseValidationState(.noFace)
+                updatePoseDebugLines([
+                    "Pose debug: no face",
+                    "Step: \(currentPoseStep.label)",
+                    "State: No face detected"
+                ])
                 return
             }
 
-            guard observations.count == 1 else {
+            guard poseObservations.count == 1 else {
                 updatePoseValidationState(.tooManyFaces)
+                updatePoseDebugLines([
+                    "Pose debug: too many faces",
+                    "Step: \(currentPoseStep.label)",
+                    "Count: \(poseObservations.count)",
+                    "State: Too many faces"
+                ])
                 return
             }
 
-            let sortedObservations = observations.sorted {
+            let sortedPoseObservations = poseObservations.sorted {
                 $0.boundingBox.width * $0.boundingBox.height >
                 $1.boundingBox.width * $1.boundingBox.height
             }
-            guard let mainFace = sortedObservations.first else {
+            guard let mainFace = sortedPoseObservations.first else {
                 updatePoseValidationState(.noFace)
+                updatePoseDebugLines([
+                    "Pose debug: no face",
+                    "Step: \(currentPoseStep.label)",
+                    "State: No face detected"
+                ])
                 return
             }
 
-            let validation = evaluatePose(for: mainFace)
+            let landmarkObservations = landmarkRequest.results ?? []
+            let matchingLandmarkFace = matchingLandmarkFace(for: mainFace, in: landmarkObservations)
+            let validation = evaluatePose(for: mainFace, landmarks: matchingLandmarkFace?.landmarks)
             updatePoseValidationState(validation)
         }
 
-        private func evaluatePose(for faceObservation: VNFaceObservation) -> PoseValidationState {
-            guard let yaw = faceObservation.yaw?.doubleValue,
-                  let roll = faceObservation.roll?.doubleValue,
-                  let pitch = faceObservation.pitch?.doubleValue else {
-                return .guidance("Move closer")
+        private func matchingLandmarkFace(
+            for poseObservation: VNFaceObservation,
+            in landmarkObservations: [VNFaceObservation]
+        ) -> VNFaceObservation? {
+            guard landmarkObservations.isEmpty == false else {
+                return nil
+            }
+            if let exactMatch = landmarkObservations.first(where: { observation in
+                observation.boundingBox == poseObservation.boundingBox
+            }) {
+                return exactMatch
             }
 
-            let yawDegreesSigned = yaw * 180 / .pi
-            let signedYaw = (currentPosition == .front ? -yawDegreesSigned : yawDegreesSigned)
-            let yawDegrees = abs(signedYaw)
-            let rollDegrees = abs(roll * 180 / .pi)
-            let pitchDegrees = abs(pitch * 180 / .pi)
+            return landmarkObservations.min {
+                let first = centerDistanceSquared(from: $0.boundingBox, to: poseObservation.boundingBox)
+                let second = centerDistanceSquared(from: $1.boundingBox, to: poseObservation.boundingBox)
+                return first < second
+            }
+        }
+
+        private func centerDistanceSquared(from first: CGRect, to second: CGRect) -> CGFloat {
+            let dx = first.midX - second.midX
+            let dy = first.midY - second.midY
+            return (dx * dx) + (dy * dy)
+        }
+
+        private func evaluatePose(
+            for faceObservation: VNFaceObservation,
+            landmarks: VNFaceLandmarks2D?
+        ) -> PoseValidationState {
             let faceBox = faceObservation.boundingBox
+            let faceArea = faceBox.width * faceBox.height
+            let faceIsLargeEnough = faceBox.width >= minimumRelativeFaceDimension
+                && faceBox.height >= minimumRelativeFaceDimension
+                && faceArea >= 0.008
             let faceIsCentered = faceBox.midX >= 0.22
                 && faceBox.midX <= 0.78
                 && faceBox.midY >= 0.18
                 && faceBox.midY <= 0.84
-            let faceIsLargeEnough = faceBox.width >= 0.15 && faceBox.height >= 0.15
+            let faceIsSlightTurnCentered = slightTurnCenterXRange.contains(faceBox.midX)
+                && slightTurnCenterYRange.contains(faceBox.midY)
+            let headAngleTolerance = currentPoseStep == .slightTurnLeft
+                ? slightTurnHeadAngleDegrees
+                : maxHeadAngleDegrees
 
-            if rollDegrees > maxHeadAngleDegrees {
-                return .guidance("Keep your head level")
-            }
-            if pitchDegrees > maxHeadAngleDegrees {
-                return .guidance("Keep your head up")
+            let detectedYaw = faceObservation.yaw?.doubleValue
+            let detectedRoll = faceObservation.roll?.doubleValue
+            let detectedPitch = faceObservation.pitch?.doubleValue
+            let fallbackAngles = estimatePoseAngles(from: landmarks)
+            let yawDegrees = detectedYaw.map {
+                abs(($0 * 180 / .pi) * (currentPosition == .front ? -1 : 1))
+            } ?? fallbackAngles.yaw
+            let pitchDegrees = detectedPitch
+                .map(normalizeHeadAngleDegrees)
+                .flatMap { detected in
+                    guard let fallback = fallbackAngles.pitch else {
+                        return detected
+                    }
+                    return min(detected, fallback)
+                } ?? fallbackAngles.pitch
+            let rollDegrees = detectedRoll
+                .map(normalizeHeadAngleDegrees)
+                .flatMap { detected in
+                    guard let fallback = fallbackAngles.roll else {
+                        return detected
+                    }
+                    return min(detected, fallback)
+                } ?? fallbackAngles.roll
+            let yawAngle: Double?
+            let pitchAngle: Double?
+            let rollAngle: Double?
+            var smileScore: Double?
+            var result: PoseValidationState = .aligned
+
+            yawAngle = yawDegrees
+            pitchAngle = pitchDegrees
+            rollAngle = rollDegrees
+
+            if let rollDegrees {
+                if rollDegrees > headAngleTolerance {
+                    result = .guidance("Keep your head level")
+                } else if let pitchDegrees, pitchDegrees > headAngleTolerance {
+                    result = .guidance("Keep your head up")
+                }
+            } else if let pitchDegrees, pitchDegrees > headAngleTolerance {
+                result = .guidance("Keep your head up")
             }
 
-            switch currentPoseStep {
-            case .straightAhead:
-                if faceIsLargeEnough == false {
-                    return .guidance("Move closer")
-                }
-                if faceIsCentered == false {
-                    return .guidance("Center your face")
-                }
-                if yawDegrees > straightAheadYawToleranceDegrees {
-                    return .guidance("Look straight into camera")
-                }
-            case .slightTurnLeft:
-                if faceIsLargeEnough == false {
-                    return .guidance("Move closer")
-                }
-                if faceIsCentered == false {
-                    return .guidance("Center your face")
-                }
-                if yawDegrees < slightTurnYawMinDegrees {
-                    return .guidance("Turn slightly left")
-                }
-                if yawDegrees > slightTurnYawMaxDegrees {
-                    return .guidance("Turn less sharply")
-                }
-            case .smile:
-                if faceIsLargeEnough == false {
-                    return .guidance("Move closer")
-                }
-                if faceIsCentered == false {
-                    return .guidance("Center your face")
-                }
-                if yawDegrees > smileYawToleranceDegrees {
-                    return .guidance("Look toward camera")
-                }
-                let smileScore = estimateSmile(from: faceObservation)
-                if smileScore < minSmileScore {
-                    return .guidance("Please smile")
+            if result == .aligned {
+                switch currentPoseStep {
+                case .straightAhead:
+                    if faceIsCentered == false {
+                        result = .guidance("Center your face")
+                    } else if let yawDegrees, yawDegrees > straightAheadYawToleranceDegrees {
+                        result = .guidance("Look straight into camera")
+                    } else if yawDegrees == nil {
+                        result = .guidance("Look straight into camera")
+                    }
+                case .slightTurnLeft:
+                    if faceIsSlightTurnCentered == false {
+                        result = .guidance("Center your face")
+                    } else if yawDegrees == nil {
+                        result = .guidance("Turn slightly left")
+                    } else if let yawDegrees, yawDegrees < slightTurnYawMinDegrees {
+                        result = .guidance("Turn slightly left")
+                    } else if let yawDegrees, yawDegrees > slightTurnYawMaxDegrees {
+                        result = .guidance("Turn less sharply")
+                    }
+                case .smile:
+                    if faceIsLargeEnough == false {
+                        result = .guidance("Move closer")
+                    } else if faceIsCentered == false {
+                        result = .guidance("Center your face")
+                    } else if let yawDegrees, yawDegrees > smileYawToleranceDegrees {
+                        result = .guidance("Look toward camera")
+                    } else if let landmarks {
+                        let score = maybeEstimateSmile(from: landmarks)
+                        smileScore = score
+                        if score < minSmileScore {
+                            result = .guidance("Please smile")
+                        }
+                    } else {
+                        result = .guidance("Please smile")
+                    }
                 }
             }
 
-            return .aligned
+            var lines: [String] = [
+                "Pose debug step: \(currentPoseStep.label)",
+                "Angles: yaw=\(debugFormat(yawAngle))°, pitch=\(debugFormat(pitchAngle))°, roll=\(debugFormat(rollAngle))°",
+                "Box: x=\(debugFormat(faceBox.midX)) y=\(debugFormat(faceBox.midY)) w=\(debugFormat(faceBox.width)) h=\(debugFormat(faceBox.height))",
+                "Area: \(debugFormat(faceArea))"
+            ]
+
+            lines.append("Face large enough: \(faceIsLargeEnough)")
+            lines.append("Step center ok: \(currentPoseStep == .slightTurnLeft ? faceIsSlightTurnCentered : faceIsCentered)")
+
+            if let smileScore {
+                lines.append("Smile score: \(debugFormat(smileScore))")
+            }
+
+            lines.append("Head tolerance: \(debugFormat(headAngleTolerance))°")
+            if currentPoseStep == .slightTurnLeft {
+                lines.append("Yaw window: \(debugFormat(slightTurnYawMinDegrees))..\(debugFormat(slightTurnYawMaxDegrees))")
+            }
+            lines.append("State: \(result.message)")
+            updatePoseDebugLines(lines)
+
+            return result
         }
 
-        private func estimateSmile(from faceObservation: VNFaceObservation) -> Double {
-            guard let outerLips = faceObservation.landmarks?.outerLips else {
+        private func estimatePoseAngles(
+            from landmarks: VNFaceLandmarks2D?
+        ) -> (yaw: Double?, pitch: Double?, roll: Double?) {
+            guard let landmarks else {
+                return (nil, nil, nil)
+            }
+
+            let roll = estimateRoll(from: landmarks)
+            let pitch = estimatePitch(from: landmarks)
+            let yaw = estimateYaw(from: landmarks)
+
+            return (yaw, pitch, roll)
+        }
+
+        private func estimateRoll(from landmarks: VNFaceLandmarks2D) -> Double? {
+            guard let leftEye = landmarkCenter(landmarks.leftEye),
+                  let rightEye = landmarkCenter(landmarks.rightEye) else {
+                return nil
+            }
+
+            let deltaY = rightEye.y - leftEye.y
+            let deltaX = rightEye.x - leftEye.x
+            let roll = atan2(deltaY, deltaX) * 180 / .pi
+            return min(max(abs(roll), 0), 90)
+        }
+
+        private func estimatePitch(from landmarks: VNFaceLandmarks2D) -> Double? {
+            guard let outerMouth = landmarkCenter(landmarks.outerLips),
+                  let leftEye = landmarkCenter(landmarks.leftEye),
+                  let rightEye = landmarkCenter(landmarks.rightEye) else {
+                return nil
+            }
+            let eyeMidY = (leftEye.y + rightEye.y) / 2
+            let mouthDelta = eyeMidY - outerMouth.y
+            return min(max(abs(mouthDelta * 360), 0), 90)
+        }
+
+        private func normalizeHeadAngleDegrees(_ radians: Double) -> Double {
+            let degrees = abs(radians * 180 / .pi)
+            return degrees > 90 ? 180 - degrees : degrees
+        }
+
+        private func estimateYaw(from landmarks: VNFaceLandmarks2D) -> Double? {
+            if let noseCenter = landmarkCenter(landmarks.nose) {
+                let normalizedOffset = abs(noseCenter.x - 0.5)
+                return min(normalizedOffset * 180, 90)
+            }
+
+            guard let leftEye = landmarkCenter(landmarks.leftEye),
+                  let rightEye = landmarkCenter(landmarks.rightEye),
+                  let outerMouth = landmarkCenter(landmarks.outerLips) else {
+                return nil
+            }
+            let eyeMidX = (leftEye.x + rightEye.x) / 2
+            let mouthOffset = abs(eyeMidX - outerMouth.x)
+            return min(mouthOffset * 180, 90)
+        }
+
+        private func landmarkCenter(_ region: VNFaceLandmarkRegion2D?) -> CGPoint? {
+            guard let region else { return nil }
+            let points = region.normalizedPoints
+            guard points.isEmpty == false else { return nil }
+
+            var totalX: CGFloat = 0
+            var totalY: CGFloat = 0
+            points.forEach { point in
+                totalX += point.x
+                totalY += point.y
+            }
+
+            return CGPoint(
+                x: totalX / CGFloat(points.count),
+                y: totalY / CGFloat(points.count)
+            )
+        }
+
+        private func debugFormat(_ value: Double) -> String {
+            String(format: "%.2f", value)
+        }
+
+        private func debugFormat(_ value: Double?) -> String {
+            guard let value else {
+                return "n/a"
+            }
+            return debugFormat(value)
+        }
+
+        private func debugFormat(_ value: CGFloat) -> String {
+            String(format: "%.3f", value)
+        }
+
+        private func updatePoseDebugLines(_ lines: [String]) {
+            DispatchQueue.main.async {
+                self.poseDebugLines = lines
+            }
+        }
+
+        private func maybeEstimateSmile(from landmarks: VNFaceLandmarks2D) -> Double {
+            guard let outerLips = landmarks.outerLips else {
                 return 0
             }
 
             let outerScore = mouthSmileScore(from: outerLips.normalizedPoints)
-            guard let innerLips = faceObservation.landmarks?.innerLips else {
+            guard let innerLips = landmarks.innerLips else {
                 return outerScore
             }
 
