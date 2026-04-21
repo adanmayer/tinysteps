@@ -1,0 +1,18 @@
+This is the T6 Capture Fullscreen — Photo + Name Halo screen of TinySteps iOS app (390×844pt, portrait). Post-shutter state: photo just taken, Name Halos are live-matching children's faces.
+
+LAYOUT (top → bottom):
+- Thin 44pt top bar on cream #FBF6EE: close X left (soft slate), "Photo" Title 17pt warm charcoal centre, type-switch chip row right (4 pills: mic, camera active with sage 14% fill, image+, link).
+- Main photo viewfinder area filling ~580pt: the captured photo shows two children at a nature table examining leaves — the image has a warm, bright, documentary feel.
+- On top of photo, Name Halo overlays:
+  - Over child 1 (left): a circular sage #8DA67A halo ring pulsing (draw with a soft outer glow, 4pt sage ring) and a pill below the halo reading "Amara" in sage fill white text 600 Body 14pt.
+  - Over child 2 (right): a dusty-rose #D99B8F "?" halo — circular rose ring with "?" glyph in warm charcoal, pill below reads "Tap to name" in dusty-rose 14% fill with warm charcoal text.
+- A faint light "long-press to show face rect" caption 11pt white with soft shadow at photo bottom-left.
+- Pre-attributed avatar chip row at top of photo (semi-transparent): "Amara · +1" small pill.
+- Bottom action area on cream (above safe area):
+  - Two buttons side-by-side:
+    - Primary: "Keep" — 56pt sage #8DA67A pill, white 600 text, 240pt wide, centred-left with check icon.
+    - Secondary: "Retake" — 56pt quiet-stone outlined pill, warm charcoal text, 100pt wide, right.
+  - Small caption 11pt soft slate above buttons: "Keep saves and takes you to the draft sheet."
+- Home indicator.
+
+STYLE: Nunito Sans, Journey palette, no drop shadows on the cream chrome (photo can have a subtle border only). Warm, not surveillance-y — face recognition as gentle recognition.

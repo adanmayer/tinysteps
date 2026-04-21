@@ -22,6 +22,7 @@ struct ClassRosterStudentSetupSheet: View {
     @State private var setupError: String?
     @State private var showsPrivacyInfo = false
     @State private var activeStepGlow = false
+    @State private var isReviewMode = false
 
     var body: some View {
         NavigationStack {
@@ -29,20 +30,17 @@ struct ClassRosterStudentSetupSheet: View {
                 Color(hex: "#F5EDE0")
                     .ignoresSafeArea()
 
-                if student.needsFaceEnrollment {
-                    enrollmentBody
-                } else {
-                    alreadySetupBody
-                }
+                enrollmentBody
             }
             .onAppear {
                 activeStepGlow = false
+                isReviewMode = student.needsFaceEnrollment == false
                 withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true)) {
                     activeStepGlow = true
                 }
                 capturedPhotos = []
                 setupError = nil
-                if student.needsFaceEnrollment {
+                if isReviewMode == false {
                     Task {
                         await cameraManager.start()
                         cameraManager.setPoseRequirement(capturedPhotoCount)
@@ -50,8 +48,11 @@ struct ClassRosterStudentSetupSheet: View {
                 }
             }
             .onChange(of: capturedPhotoCount) { _, newCapturedPhotoCount in
-                guard student.needsFaceEnrollment else { return }
                 cameraManager.setPoseRequirement(newCapturedPhotoCount)
+                if newCapturedPhotoCount >= requiredPhotoCount {
+                    isReviewMode = true
+                    cameraManager.stop()
+                }
             }
             .onChange(of: canTakePhoto) { _, newCanTakePhoto in
                 guard newCanTakePhoto else { return }
@@ -72,19 +73,19 @@ struct ClassRosterStudentSetupSheet: View {
 
                 headline
                     .padding(.horizontal, 24)
-                    .padding(.top, 24)
+                    .padding(.top, isReviewMode ? 20 : 24)
 
                 photoStrip
                     .padding(.horizontal, 24)
-                    .padding(.top, 24)
+                    .padding(.top, isReviewMode ? 22 : 24)
 
                 viewfinder
                     .padding(.horizontal, 24)
-                    .padding(.top, 20)
+                    .padding(.top, isReviewMode ? 16 : 20)
 
                 captureRow
                     .padding(.horizontal, 24)
-                    .padding(.top, 18)
+                    .padding(.top, isReviewMode ? 16 : 18)
 
                 if let setupError {
                     Text(setupError)
@@ -188,20 +189,39 @@ struct ClassRosterStudentSetupSheet: View {
     }
 
     private var headline: some View {
-        VStack(spacing: 12) {
-            Text("Let's help TinySteps recognise \(displayName).")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Color(hex: "#3A342E"))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: isReviewMode ? 10 : 12) {
+            if isReviewMode {
+                Text("Face setup is ready for \(displayName).")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 360, alignment: .center)
 
-            Text("One quick photo at a time — we'll do 3 in total.")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 8)
+                Text("All images are captured. You can retake or remove and replace them.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 300, alignment: .center)
+            } else {
+                Text("Let's help TinySteps recognise \(displayName).")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("One quick photo at a time — we'll do 3 in total.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var photoStrip: some View {
@@ -324,6 +344,76 @@ struct ClassRosterStudentSetupSheet: View {
     }
 
     private var viewfinder: some View {
+        Group {
+            if isReviewMode {
+                completedViewfinder
+            } else {
+                liveViewfinder
+            }
+        }
+    }
+
+    private var completedViewfinder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: "#F8EEE3"),
+                            Color(hex: "#F2E3D0")
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color(hex: "#DDE8D3"))
+                        .frame(width: 76, height: 76)
+
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 54, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color(hex: "#8DA67A"))
+
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(Color(hex: "#8DA67A"))
+                        .background(
+                            Circle()
+                                .fill(Color(hex: "#FFFDF8"))
+                                .frame(width: 24, height: 24)
+                        )
+                        .offset(x: 4, y: 0)
+                }
+                .frame(width: 82, height: 82, alignment: .center)
+
+                Text("Captured")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .multilineTextAlignment(.center)
+
+                Text("This student's face setup is complete.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 52)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+        .frame(height: 286)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+    }
+
+    private var liveViewfinder: some View {
         ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: 20)
                 .fill(
@@ -489,38 +579,95 @@ struct ClassRosterStudentSetupSheet: View {
         .frame(width: 198, height: 198, alignment: .center)
     }
 
+    @ViewBuilder
     private var captureRow: some View {
-        ZStack {
-            HStack {
-                Button {
-                    showsPrivacyInfo = true
-                } label: {
-                    Circle()
-                        .fill(Color(hex: "#FFFDF8"))
-                        .frame(width: 38, height: 38)
-                        .overlay(
-                            Image(systemName: "info")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color(hex: "#6E6456"))
-                        )
-                        .overlay(
-                            Circle()
-                                .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
-                        )
+        if isReviewMode {
+            reviewModeActionRow
+        } else {
+            ZStack {
+                HStack {
+                    Button {
+                        showsPrivacyInfo = true
+                    } label: {
+                        Circle()
+                            .fill(Color(hex: "#FFFDF8"))
+                            .frame(width: 38, height: 38)
+                            .overlay(
+                                Image(systemName: "info")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(Color(hex: "#6E6456"))
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Privacy information")
+
+                    Spacer()
+
+                    flipCameraButton
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Privacy information")
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 30)
 
-                Spacer()
-
-                flipCameraButton
+                shutterButton
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 30)
+            .frame(height: 104)
+        }
+    }
 
-            shutterButton
+    private var reviewModeActionRow: some View {
+        HStack(spacing: 14) {
+            Button {
+                beginRetakeFlow()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Retake")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(Color(hex: "#A92E2E"))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(Color(hex: "#FDECEC"))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color(hex: "#C84A4A"), lineWidth: 1.4)
+                )
+                .clipShape(Capsule())
+            }
+
+            Button {
+                Task {
+                    await removeEnrollment()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Remove")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(Color(hex: "#FEF7F0"))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(Color(hex: "#A92E2E"))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color(hex: "#8B2020"), lineWidth: 1.2)
+                )
+                .clipShape(Capsule())
+            }
         }
         .frame(height: 104)
+        .disabled(isSaving)
+        .opacity(isSaving ? 0.7 : 1)
+        .padding(.horizontal, 8)
     }
 
     private var shutterButton: some View {
@@ -579,8 +726,13 @@ struct ClassRosterStudentSetupSheet: View {
         }
     }
 
+    private var uiCapturedPhotoCount: Int {
+        isReviewMode ? requiredPhotoCount : capturedPhotoCount
+    }
+
     private var canTakePhoto: Bool {
-        isSaving == false
+        isReviewMode == false
+            && isSaving == false
             && capturedPhotoCount < requiredPhotoCount
             && cameraManager.canCapture
             && cameraManager.poseValidationState.isAligned
@@ -624,14 +776,20 @@ struct ClassRosterStudentSetupSheet: View {
         let title: String
         let styleColor: Color
 
-        title = state == .active ? "\(actionText) · capturing…" : actionText
+        if isReviewMode {
+            title = actionText
+        } else {
+            title = state == .active ? "\(actionText) · capturing…" : actionText
+        }
 
         styleColor = state == .empty ? Color(hex: "#A89E8F") : Color(hex: "#8DA67A")
         return Text(title)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(styleColor)
             .multilineTextAlignment(.center)
-            .frame(height: 18)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .frame(maxWidth: .infinity, minHeight: 18, alignment: .center)
     }
 
     private func promptText(for index: Int) -> String {
@@ -646,10 +804,10 @@ struct ClassRosterStudentSetupSheet: View {
     }
 
     private var currentStep: Int {
-        if capturedPhotoCount >= requiredPhotoCount {
+        if uiCapturedPhotoCount >= requiredPhotoCount {
             return requiredPhotoCount
         }
-        return capturedPhotoCount + 1
+        return uiCapturedPhotoCount + 1
     }
 
     private var capturedPhotoCount: Int {
@@ -663,10 +821,10 @@ struct ClassRosterStudentSetupSheet: View {
     }
 
     private func slotState(for index: Int) -> SlotState {
-        if index < capturedPhotoCount {
+        if index < uiCapturedPhotoCount {
             return .completed
         }
-        if index == capturedPhotoCount && capturedPhotoCount < requiredPhotoCount {
+        if index == uiCapturedPhotoCount && isReviewMode == false && capturedPhotoCount < requiredPhotoCount {
             return .active
         }
         return .empty
@@ -674,6 +832,10 @@ struct ClassRosterStudentSetupSheet: View {
 
     @MainActor
     private func captureCurrentPhoto() async {
+        guard isReviewMode == false else {
+            return
+        }
+
         guard isSaving == false else {
             return
         }
@@ -728,6 +890,39 @@ struct ClassRosterStudentSetupSheet: View {
             if capturedPhotos.count >= requiredPhotoCount {
                 capturedPhotos.removeLast()
             }
+            setupError = error.localizedDescription
+            isSaving = false
+        }
+    }
+
+    private func beginRetakeFlow() {
+        guard isSaving == false else {
+            return
+        }
+
+        isReviewMode = false
+        capturedPhotos.removeAll()
+        setupError = nil
+        cameraManager.stop()
+        Task {
+            await cameraManager.start()
+            cameraManager.setPoseRequirement(capturedPhotoCount)
+        }
+    }
+
+    @MainActor
+    private func removeEnrollment() async {
+        guard isSaving == false else {
+            return
+        }
+
+        isSaving = true
+        setupError = nil
+
+        do {
+            try await faceEnrollmentStore.deleteEnrollment(for: student.studentKey)
+            onSetupCompleted()
+        } catch {
             setupError = error.localizedDescription
             isSaving = false
         }
