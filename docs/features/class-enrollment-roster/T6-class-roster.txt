@@ -1,0 +1,30 @@
+This is the T6 — Class Roster screen of TinySteps. The teacher's third-tab view: a grid of all children in the class with face-enrolment + observation-count per tile.
+
+VISUAL STYLE: 390x844pt iPhone 15 portrait. Warm cream #FBF6EE page, soft ivory #FFFDF8 tiles, pale sand #F5EDE0, warm charcoal #3A342E, olive-brown #6E6456, warm grey #A89E8F, sage #8DA67A, dusty rose #D99B8F, honey gold #E6B469. Nunito Sans. Tiles 20pt radius, warm shadow.
+
+LAYOUT top to bottom:
+1. iOS status bar.
+2. Top header row (24pt horizontal padding, 16pt vertical):
+   - Left: class picker pill "Robin Class · 14" (sage dot, chevron-down).
+   - Right: 32pt circular gear icon pill (routes to T11).
+3. SECTION HEADING "Class" 28pt 600 warm charcoal + meta "14 children · 3 awaiting face enrolment" 13pt text-secondary (24pt padding).
+4. SEARCH/FILTER bar (24pt horizontal margin, 16pt top, 16pt radius, 48pt height, card-bg ivory, warm shadow):
+   - Left: small sage search glyph + placeholder "Search names" 14pt text-tertiary.
+   - Right: small sage filter icon.
+5. SECTION SUBHEADER "In today" 15pt 500 warm charcoal + small sage present-dot chip "· 12 present" 13pt, 24pt padding, 16pt top.
+6. GRID OF CHILD TILES (3 columns, ~110pt square tiles, 12pt gap, 24pt horizontal margin):
+   Render 9 tiles visible, with variety:
+   TILE 1: 64pt soft-rounded-square avatar (6pt radius) of smiling girl "Amara" + "Amara" 500 14pt centered below + small meta row "28 · " (sage pen with observation count) + small sage present-dot. Faint sage-tint border.
+   TILE 2: "Zayd" boy avatar + "Zayd" + "31 ·" + sage dot.
+   TILE 3: "Mira" girl + "Mira" + "22 ·" + sage dot.
+   TILE 4: "Idris" boy + "Idris" + "19 ·" + honey "?" face-enrolment-needed pill overlay at top-right of tile.
+   TILE 5: "Noor" girl + "Noor" + "26 ·" + sage dot.
+   TILE 6: "Leo" boy + "Leo" + "17 ·" + sage dot.
+   TILE 7: "Saoirse" girl + "Saoirse" + "14 ·" + honey "?" pill.
+   TILE 8: "Arjun" boy + "Arjun" + "—" meta (not in today) + rose absent dot "· Not in today" very small pill.
+   TILE 9: "Kai" boy + "Kai" + "11 ·" + sage dot.
+7. SECTION SUBHEADER "Not in today" 15pt 500 warm charcoal + rose dot "· 2 absent" 13pt, below the visible grid fold.
+8. (Partially visible) row of 2 tiles with reduced saturation + tiny rose absent dots.
+9. Floating TAB BAR at bottom: 3 tabs (Today · Review · Class). CLASS is ACTIVE — sage icon + label.
+
+Atmosphere: a warm class portrait hung above a teacher's desk. Feels like a small community, not a database row. Warm, legible, calm. Do NOT add percentage stats, progress bars, or achievement badges. Do NOT show a "0" — use "—" for absent.

@@ -1,0 +1,46 @@
+# macOS
+.DS_Store
+Thumbs.db
+
+# Xcode / Swift
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcuserdatad
+*.xcuserstate
+*.xcuserdata
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Carthage
+Carthage/Checkouts/
+Carthage/Build/
+
+# Fastlane / tooling artifacts
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Testing and code quality
+*.log
+*.sqlite
+*.sqlite3
+
+# Environment / secrets
+.env
+.env.*
+
+# IDEs
+.vscode/
+.idea/

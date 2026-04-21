@@ -1,0 +1,32 @@
+This is the T8 — Face Enrolment screen of TinySteps. A step-by-step flow to help TinySteps recognise a specific child. The teacher takes 3 photos in-app with gentle guidance. Warm, privacy-emphasising, never surveillance-styled.
+
+VISUAL STYLE: 390x844pt iPhone 15 portrait. Pale sand #F5EDE0 elevated background (distinct from normal pages — this is a guided modal flow). Card-bg ivory #FFFDF8. Warm charcoal #3A342E, olive-brown #6E6456, warm grey #A89E8F, sage #8DA67A (progress/confirm), dusty rose #D99B8F (child identity), honey gold #E6B469. Nunito Sans. Cards 22pt radius, warm shadow.
+
+LAYOUT top to bottom:
+1. iOS status bar.
+2. Top nav row (24pt horizontal padding, 16pt vertical):
+   - Left: 36pt close × pill.
+   - Center: small step-counter pill "Step 2 of 3" 13pt 500 warm charcoal on card-bg ivory pill.
+   - Right: "Skip" text link 14pt text-tertiary.
+3. STEPPER BAR (24pt horizontal margin, 12pt top, 4pt thick, rounded):
+   - 3 segments: segment 1 filled sage (done), segment 2 filled sage (in progress — slightly lighter), segment 3 pale sand (pending). Gap between segments 6pt.
+4. Headline below (24pt horizontal padding, 32pt top):
+   - "Let's help TinySteps recognise Amara." — 24pt 600 warm charcoal, centered, 2 lines. Below, meta "One quick photo at a time — we'll do 3 in total" 14pt text-secondary, centered.
+5. PROGRESS PHOTO STRIP (24pt horizontal margin, 24pt top): a row of 3 photo slots (112pt square, 16pt gap):
+   - SLOT 1: Filled with a small warm photo of the child smiling head-on. 16pt rounded-square, 2pt sage-outlined halo, small sage checkmark 22pt bottom-right corner, small caption "Straight ahead · ✓" 11pt 500 sage below.
+   - SLOT 2: Filled with photo of child looking slightly to the side. 16pt rounded-square, 3pt sage-pulsing halo (current), small caption "Slight turn · capturing…" 11pt 500 honey gold below.
+   - SLOT 3: EMPTY. Dashed 2pt sage border, card-bg fill, a small sage outline silhouette icon centered + "A big smile" caption 11pt text-tertiary below.
+6. VIEWFINDER (24pt horizontal margin, 20pt top, 320pt tall, 20pt radius, warm shadow):
+   - Simulated camera view: a warm blurred nursery interior background with the child's face softly framed in a 180pt circular sage-pulse GUIDE RING centered.
+   - Top-left of viewfinder: small pill "Slight turn to the left" 13pt 500 warm charcoal on translucent cream.
+   - Top-right of viewfinder: small sage pill "Good light" 13pt 500 with small sun glyph.
+7. TAP-TO-CAPTURE ROW BELOW VIEWFINDER (24pt horizontal padding, 20pt top):
+   - 96pt SAGE shutter button centered (white rounded-square iris glyph inside). Warm shadow.
+   - Left of shutter: small text-tertiary caption "Hold steady".
+   - Right of shutter: 44pt flip-camera pill icon.
+8. PRIVACY CARD (24pt horizontal margin, 24pt top, card-bg ivory, 20pt radius, 16pt padding):
+   - Small sage lock glyph + "These photos stay on your iPad." 15pt 500 warm charcoal.
+   - Below: "They never leave this device. We use them only to match faces in today's photos, and you can delete them any time from Amara's profile." 13pt text-secondary, 2 lines.
+9. Bottom safe area inset; no tab bar (modal).
+
+Atmosphere: reverent, private, warm. This should feel like a careful craft step — the teacher is helping the app see a child gently. Never cold, never data-industrial. Do NOT use red, alarm colors, biometric-looking grids, or targeting reticles.
