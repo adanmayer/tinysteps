@@ -3,6 +3,7 @@ import Combine
 import AVFoundation
 import UIKit
 import ImageIO
+import CoreImage
 import Vision
 
 struct ClassRosterStudentSetupSheet: View {
@@ -20,6 +21,7 @@ struct ClassRosterStudentSetupSheet: View {
     @State private var isSaving = false
     @State private var setupError: String?
     @State private var showsPrivacyInfo = false
+    @State private var activeStepGlow = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +36,10 @@ struct ClassRosterStudentSetupSheet: View {
                 }
             }
             .onAppear {
+                activeStepGlow = false
+                withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true)) {
+                    activeStepGlow = true
+                }
                 capturedPhotos = []
                 setupError = nil
                 if student.needsFaceEnrollment {
@@ -47,7 +53,12 @@ struct ClassRosterStudentSetupSheet: View {
                 guard student.needsFaceEnrollment else { return }
                 cameraManager.setPoseRequirement(newCapturedPhotoCount)
             }
+            .onChange(of: canTakePhoto) { _, newCanTakePhoto in
+                guard newCanTakePhoto else { return }
+                FaceEnrollmentCuePlayer.shared.playReadyPing()
+            }
             .onDisappear {
+                activeStepGlow = false
                 cameraManager.stop()
             }
             .navigationBarBackButtonHidden(true)
@@ -216,14 +227,16 @@ struct ClassRosterStudentSetupSheet: View {
 
     private func faceSlot(for index: Int, size: CGFloat) -> some View {
         let state = slotState(for: index)
+        let activeFrameColor = activeStepGlow ? Color(hex: "#5F8749") : Color(hex: "#BFD2B6")
+        let activeFillColor = activeStepGlow ? Color(hex: "#8DA67A").opacity(0.18) : Color(hex: "#D8E7CC").opacity(0.08)
         return ZStack {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(
-                            state == .empty ? Color(hex: "#8DA67A").opacity(0.55) : Color(hex: "#8DA67A"),
-                            style: state == .empty ? StrokeStyle(lineWidth: 2, dash: [7, 5]) : StrokeStyle(lineWidth: state == .active ? 3 : 2)
+                            state == .empty ? Color(hex: "#8DA67A").opacity(0.55) : Color(hex: "#7C9A68"),
+                            style: state == .empty ? StrokeStyle(lineWidth: 2, dash: [7, 5]) : StrokeStyle(lineWidth: 2)
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 )
@@ -231,17 +244,17 @@ struct ClassRosterStudentSetupSheet: View {
                     Group {
                         if state == .active {
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color(hex: "#F3E2BA"), lineWidth: 2)
-                                .shadow(color: Color(hex: "#8DA67A").opacity(0.35), radius: 8)
-                        }
-                    }
-                )
-                .overlay(
-                    Group {
-                        if state == .active {
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color(hex: "#8DA67A"), lineWidth: 1.5)
-                                .shadow(color: Color(hex: "#8DA67A").opacity(0.45), radius: 12, x: 0, y: 0)
+                                .stroke(activeFrameColor, lineWidth: 2)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                .fill(activeFillColor)
+                                )
+                                .shadow(
+                                    color: activeFrameColor.opacity(activeStepGlow ? 0.34 : 0.22),
+                                    radius: 8,
+                                    x: 0,
+                                    y: 0
+                                )
                         }
                     }
                 )
@@ -293,7 +306,7 @@ struct ClassRosterStudentSetupSheet: View {
     @ViewBuilder
     private func poseImage(for index: Int) -> some View {
         let name = poseAssetName(for: index)
-        if let uiImage = UIImage(named: name, in: .main, with: nil) {
+        if let uiImage = UIImage(named: name) {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFit()
@@ -327,6 +340,7 @@ struct ClassRosterStudentSetupSheet: View {
             if cameraManager.isReady {
                 FaceEnrollmentCameraPreview(
                     session: cameraManager.session,
+                    device: cameraManager.currentDevice,
                     isFrontCamera: cameraManager.currentPosition == .front
                 )
                     .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -428,10 +442,30 @@ struct ClassRosterStudentSetupSheet: View {
 
     private var cameraGuide: some View {
         return ZStack {
+            Circle()
+                .stroke(Color(hex: "#FFFDF8").opacity(0.35), lineWidth: 1.5)
+                .frame(width: 172, height: 172)
+
+            Circle()
+                .stroke(Color(hex: "#8DA67A").opacity(0.20), style: StrokeStyle(lineWidth: 1, dash: [8, 8]))
+                .frame(width: 172, height: 172)
+
+            Circle()
+                .stroke(Color(hex: "#8DA67A").opacity(0.20), lineWidth: 2)
+                .frame(width: 58, height: 58)
+
+            Circle()
+                .fill(Color.clear)
+                .frame(width: 58, height: 58)
+                .overlay(
+                    Circle()
+                        .stroke(Color(hex: "#FFFDF8").opacity(activeStepGlow ? 0.38 : 0.22), lineWidth: 2)
+                )
+
             Image(systemName: "face.smiling")
-                .font(.system(size: 62, weight: .thin))
+                .font(.system(size: 44, weight: .light))
                 .symbolRenderingMode(.monochrome)
-                .foregroundStyle(Color(hex: "#8DA67A").opacity(0.32))
+                .foregroundStyle(Color(hex: "#8DA67A").opacity(activeStepGlow ? 0.42 : 0.28))
         }
         .frame(width: 198, height: 198, alignment: .center)
     }
@@ -455,15 +489,15 @@ struct ClassRosterStudentSetupSheet: View {
                                 .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
                         )
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Privacy information")
-                .frame(width: 104, alignment: .leading)
-                .padding(.leading, 14)
-                flipCameraButton
-                    .frame(width: 104, alignment: .trailing)
-                    .padding(.trailing, 14)
-                
+
                 Spacer()
+
+                flipCameraButton
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 30)
 
             shutterButton
         }
@@ -471,32 +505,66 @@ struct ClassRosterStudentSetupSheet: View {
     }
 
     private var shutterButton: some View {
-        Button {
+        let buttonFill = canTakePhoto ? Color(hex: "#6F9258") : Color(hex: "#D7CBBB")
+        let outerRing = canTakePhoto ? Color(hex: "#D9EDCC") : Color(hex: "#EFE3D1")
+        let innerRing = canTakePhoto ? Color(hex: "#FFFDF8") : Color(hex: "#F4EBDD")
+        let iconColor = canTakePhoto ? Color.white : Color(hex: "#8A7F70")
+        let enabledGlow = canTakePhoto ? Color(hex: "#6F9258").opacity(0.36) : .clear
+
+        return Button {
             Task {
                 await captureCurrentPhoto()
             }
         } label: {
-            Rectangle()
-                .fill(Color(hex: "#8DA67A"))
-                .frame(width: 84, height: 84)
-                .overlay(
-                    Image(systemName: capturedPhotoCount >= requiredPhotoCount
-                               ? symbol(for: "checkmark", fallback: "checkmark")
-                               : symbol(for: "camera", fallback: "camera"))
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(.white)
-                )
+            ZStack {
+                Circle()
+                    .fill(buttonFill)
+
+                Circle()
+                    .stroke(outerRing, lineWidth: 4)
+                    .padding(3)
+
+                Circle()
+                    .stroke(innerRing, lineWidth: 2)
+                    .padding(10)
+
+                Image(systemName: capturedPhotoCount >= requiredPhotoCount
+                           ? symbol(for: "checkmark", fallback: "checkmark")
+                           : symbol(for: "camera.fill", fallback: "camera"))
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(iconColor)
+            }
+            .frame(width: 84, height: 84)
+            .contentShape(Circle())
+            .shadow(
+                color: enabledGlow,
+                radius: 8,
+                x: 0,
+                y: 4
+            )
+            .overlay(
+                Circle()
+                    .stroke(
+                        canTakePhoto ? Color(hex: "#8DA67A") : Color(hex: "#C8B7A6"),
+                        lineWidth: canTakePhoto ? 2 : 1
+                    )
+                    .opacity(canTakePhoto ? 0.86 : 0.6)
+            )
         }
         .buttonStyle(.plain)
-        .disabled(
-            isSaving
-            || capturedPhotoCount >= requiredPhotoCount
-            || !cameraManager.canCapture
-            || !cameraManager.poseValidationState.isAligned
-        )
+        .disabled(canTakePhoto == false)
+        .accessibilityLabel(canTakePhoto ? "Take photo" : "Take photo unavailable")
+        .accessibilityHint(cameraManager.poseValidationState.isAligned ? "" : cameraManager.poseValidationState.message)
         .transaction { transaction in
             transaction.animation = nil
         }
+    }
+
+    private var canTakePhoto: Bool {
+        isSaving == false
+            && capturedPhotoCount < requiredPhotoCount
+            && cameraManager.canCapture
+            && cameraManager.poseValidationState.isAligned
     }
 
     private func symbol(for preferred: String, fallback: String) -> String {
@@ -523,6 +591,7 @@ struct ClassRosterStudentSetupSheet: View {
                         .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
                 )
         }
+        .buttonStyle(.plain)
         .disabled(isSaving || !cameraManager.canCapture)
         .accessibilityLabel("Switch camera")
         .transaction { transaction in
@@ -595,7 +664,7 @@ struct ClassRosterStudentSetupSheet: View {
         }
 
         guard cameraManager.poseValidationState.isAligned else {
-            setupError = "Adjust your pose to match the instruction."
+            setupError = cameraManager.poseValidationState.message
             return
         }
 
@@ -625,10 +694,15 @@ struct ClassRosterStudentSetupSheet: View {
         isSaving = true
         setupError = nil
         do {
+            let embeddings = try await FaceEnrollmentEmbeddingExtractor.extractEmbeddings(from: capturedPhotos)
             try await faceEnrollmentStore.upsertEnrollment(
                 for: student.studentKey,
                 displayName: student.displayName,
-                photoCount: capturedPhotoCount
+                embeddings: embeddings.embeddings,
+                embeddingCount: embeddings.embeddingCount,
+                vectorLength: embeddings.vectorLength,
+                elementType: embeddings.elementType,
+                modelIdentifier: embeddings.modelIdentifier
             )
             onSetupCompleted()
         } catch {
@@ -751,7 +825,8 @@ struct ClassRosterStudentSetupSheet: View {
         @Published private(set) var isReady = false
         @Published private(set) var isCapturing = false
         @Published private(set) var errorMessage: String?
-        @Published private(set) var currentPosition: AVCaptureDevice.Position = .back
+        @Published private(set) var currentPosition: AVCaptureDevice.Position = .front
+        @Published private(set) var currentDevice: AVCaptureDevice?
         @Published private(set) var isLightingGood: Bool? = nil
         @Published private(set) var poseValidationState: PoseValidationState = .unknown
 
@@ -762,12 +837,19 @@ struct ClassRosterStudentSetupSheet: View {
         private let videoOutput = AVCaptureVideoDataOutput()
         private let analysisQueue = DispatchQueue(label: "co.faria.tinysteps.faceenrollment.analysis")
         private var photoContinuation: CheckedContinuation<UIImage, Error>?
+        private var activeDevice: AVCaptureDevice?
         private var currentPoseStep: PoseStep = .straightAhead
         private var lastLightingSample = Date.distantPast
         private var lastPoseSample = Date.distantPast
         private let minimumLightingSampleInterval: TimeInterval = 0.4
         private let minimumPoseSampleInterval: TimeInterval = 0.25
         private let minimumGoodLightLuma: Float = 0.36
+        private let maxHeadAngleDegrees: Double = 16
+        private let straightAheadYawToleranceDegrees: Double = 12
+        private let slightTurnYawMinDegrees: Double = 5
+        private let slightTurnYawMaxDegrees: Double = 45
+        private let smileYawToleranceDegrees: Double = 24
+        private let minSmileScore: Double = 0.07
 
         var canCapture: Bool {
             isReady && isCapturing == false && session.isRunning
@@ -803,7 +885,8 @@ struct ClassRosterStudentSetupSheet: View {
                         self.session.startRunning()
                         DispatchQueue.main.async {
                             self.errorMessage = nil
-                            self.currentPosition = .back
+                            self.currentPosition = .front
+                            self.currentDevice = self.activeDevice
                             self.isReady = self.session.isRunning
                             continuation.resume()
                         }
@@ -825,12 +908,13 @@ struct ClassRosterStudentSetupSheet: View {
                 }
                 self.photoContinuation = nil
                 self.session.stopRunning()
-                DispatchQueue.main.async {
-                    self.isReady = false
-                    self.isCapturing = false
+                    DispatchQueue.main.async {
+                        self.isReady = false
+                        self.isCapturing = false
+                        self.currentDevice = nil
+                    }
                 }
             }
-        }
 
         func toggleCamera() {
             let nextPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back
@@ -848,6 +932,7 @@ struct ClassRosterStudentSetupSheet: View {
                     DispatchQueue.main.async {
                         self.errorMessage = nil
                         self.currentPosition = nextPosition
+                        self.currentDevice = self.activeDevice
                         self.isReady = wasRunning
                     }
                 } catch {
@@ -895,7 +980,11 @@ struct ClassRosterStudentSetupSheet: View {
 
                     self.photoContinuation = continuation
 
-                    self.applyPortraitVideoConnectionOrientation(to: self.photoOutput.connection(with: .video), isFrontCamera: self.currentPosition == .front)
+                    self.applyPortraitPhotoConnectionOrientation(
+                        to: self.photoOutput.connection(with: .video),
+                        device: self.activeDevice,
+                        isFrontCamera: self.currentPosition == .front
+                    )
 
                     let settings = AVCapturePhotoSettings()
                     DispatchQueue.main.async {
@@ -925,7 +1014,9 @@ struct ClassRosterStudentSetupSheet: View {
             }
 
             guard let data = photo.fileDataRepresentation(),
-                  let image = UIImage(data: data) else {
+                  let image = UIImage(data: data)?.normalizedForFaceEnrollmentPortrait(
+                    isFrontCamera: self.currentPosition == .front
+                  ) else {
                 DispatchQueue.main.async {
                     self.isCapturing = false
                 }
@@ -957,7 +1048,7 @@ struct ClassRosterStudentSetupSheet: View {
             }
         }
 
-        private func configureSession(position: AVCaptureDevice.Position = .back) throws {
+        private func configureSession(position: AVCaptureDevice.Position = .front) throws {
             session.beginConfiguration()
             defer {
                 session.commitConfiguration()
@@ -989,10 +1080,15 @@ struct ClassRosterStudentSetupSheet: View {
             session.addInput(input)
             session.addOutput(photoOutput)
             session.addOutput(videoOutput)
+            activeDevice = device
 
             let isFrontCamera = position == .front
-            applyPortraitVideoConnectionOrientation(to: photoOutput.connection(with: .video), isFrontCamera: isFrontCamera)
-            applyPortraitVideoConnectionOrientation(to: videoOutput.connection(with: .video), isFrontCamera: isFrontCamera)
+            applyPortraitPhotoConnectionOrientation(
+                to: photoOutput.connection(with: .video),
+                device: device,
+                isFrontCamera: isFrontCamera
+            )
+            applyUnrotatedVideoDataConnection(to: videoOutput.connection(with: .video), isFrontCamera: isFrontCamera)
 
             videoOutput.alwaysDiscardsLateVideoFrames = true
             videoOutput.setSampleBufferDelegate(self, queue: analysisQueue)
@@ -1001,7 +1097,7 @@ struct ClassRosterStudentSetupSheet: View {
             ]
         }
 
-        private func applyPortraitVideoConnectionOrientation(
+        private func applyUnrotatedVideoDataConnection(
             to connection: AVCaptureConnection?,
             isFrontCamera: Bool
         ) {
@@ -1010,25 +1106,45 @@ struct ClassRosterStudentSetupSheet: View {
             }
 
             if #available(iOS 17.0, *) {
-                let candidateAngles: [CGFloat] = isFrontCamera ? [270, 90] : [90, 270]
-                for portraitAngle in candidateAngles {
-                    if connection.isVideoRotationAngleSupported(portraitAngle) {
-                        connection.videoRotationAngle = portraitAngle
-                        break
-                    }
+                let fallbackAngle: CGFloat = isFrontCamera ? 270 : 90
+                if connection.isVideoRotationAngleSupported(fallbackAngle) {
+                    connection.videoRotationAngle = fallbackAngle
                 }
             } else if connection.isVideoOrientationSupported {
                 connection.videoOrientation = .portrait
             }
 
-            guard connection.isVideoMirroringSupported else {
+            guard connection.isVideoMirroringSupported else { return }
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = isFrontCamera
+        }
+
+        private func applyPortraitPhotoConnectionOrientation(
+            to connection: AVCaptureConnection?,
+            device: AVCaptureDevice?,
+            isFrontCamera: Bool
+        ) {
+            guard let connection else {
                 return
             }
 
-            guard connection.automaticallyAdjustsVideoMirroring == false else {
-                return
+            if #available(iOS 17.0, *) {
+                let captureAngle = device
+                    .map { AVCaptureDevice.RotationCoordinator(device: $0, previewLayer: nil).videoRotationAngleForHorizonLevelCapture }
+                    ?? 90
+                let fallbackAngle: CGFloat = isFrontCamera ? 270 : 90
+                let angle = connection.isVideoRotationAngleSupported(captureAngle)
+                    ? captureAngle
+                    : fallbackAngle
+                if connection.isVideoRotationAngleSupported(angle) {
+                    connection.videoRotationAngle = angle
+                }
+            } else if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
             }
 
+            guard connection.isVideoMirroringSupported else { return }
+            connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = isFrontCamera
         }
 
@@ -1115,50 +1231,68 @@ struct ClassRosterStudentSetupSheet: View {
         }
 
         private func evaluatePose(for faceObservation: VNFaceObservation) -> PoseValidationState {
-            let yaw = faceObservation.yaw?.doubleValue ?? 0
-            let pitch = faceObservation.pitch?.doubleValue ?? 0
-            let roll = faceObservation.roll?.doubleValue ?? 0
+            guard let yaw = faceObservation.yaw?.doubleValue,
+                  let roll = faceObservation.roll?.doubleValue,
+                  let pitch = faceObservation.pitch?.doubleValue else {
+                return .guidance("Move closer")
+            }
 
             let yawDegreesSigned = yaw * 180 / .pi
-            let yawDegrees = abs(yawDegreesSigned)
-            let pitchDegrees = abs(pitch * 180 / .pi)
+            let signedYaw = (currentPosition == .front ? -yawDegreesSigned : yawDegreesSigned)
+            let yawDegrees = abs(signedYaw)
             let rollDegrees = abs(roll * 180 / .pi)
-            let yawDegreesForLeftStep = (currentPosition == .front ? -yawDegreesSigned : yawDegreesSigned)
+            let pitchDegrees = abs(pitch * 180 / .pi)
+            let faceBox = faceObservation.boundingBox
+            let faceIsCentered = faceBox.midX >= 0.22
+                && faceBox.midX <= 0.78
+                && faceBox.midY >= 0.18
+                && faceBox.midY <= 0.84
+            let faceIsLargeEnough = faceBox.width >= 0.15 && faceBox.height >= 0.15
+
+            if rollDegrees > maxHeadAngleDegrees {
+                return .guidance("Keep your head level")
+            }
+            if pitchDegrees > maxHeadAngleDegrees {
+                return .guidance("Keep your head up")
+            }
 
             switch currentPoseStep {
             case .straightAhead:
-                if yawDegrees > 16 {
+                if faceIsLargeEnough == false {
+                    return .guidance("Move closer")
+                }
+                if faceIsCentered == false {
                     return .guidance("Center your face")
                 }
-                if pitchDegrees > 14 {
-                    return .guidance("Look directly into camera")
-                }
-                if rollDegrees > 12 {
-                    return .guidance("Keep head level")
+                if yawDegrees > straightAheadYawToleranceDegrees {
+                    return .guidance("Look straight into camera")
                 }
             case .slightTurnLeft:
-                if yawDegreesForLeftStep < 10 {
+                if faceIsLargeEnough == false {
+                    return .guidance("Move closer")
+                }
+                if faceIsCentered == false {
+                    return .guidance("Center your face")
+                }
+                if yawDegrees < slightTurnYawMinDegrees {
                     return .guidance("Turn slightly left")
                 }
-                if yawDegreesForLeftStep > 32 {
+                if yawDegrees > slightTurnYawMaxDegrees {
                     return .guidance("Turn less sharply")
                 }
-                if rollDegrees > 14 {
-                    return .guidance("Keep head level")
-                }
-                if pitchDegrees > 18 {
-                    return .guidance("Look at the camera levelly")
-                }
             case .smile:
+                if faceIsLargeEnough == false {
+                    return .guidance("Move closer")
+                }
+                if faceIsCentered == false {
+                    return .guidance("Center your face")
+                }
+                if yawDegrees > smileYawToleranceDegrees {
+                    return .guidance("Look toward camera")
+                }
                 let smileScore = estimateSmile(from: faceObservation)
-                if smileScore < 0.05 {
+                if smileScore < minSmileScore {
                     return .guidance("Please smile")
-                }
-                if rollDegrees > 16 {
-                    return .guidance("Keep head level")
-                }
-                if pitchDegrees > 18 {
-                    return .guidance("Keep head level with camera")
                 }
             }
 
@@ -1268,6 +1402,7 @@ struct ClassRosterStudentSetupSheet: View {
 
     private struct FaceEnrollmentCameraPreview: UIViewRepresentable {
         let session: AVCaptureSession
+        let device: AVCaptureDevice?
         let isFrontCamera: Bool
 
         func makeUIView(context: Context) -> FaceEnrollmentCameraPreviewView {
@@ -1281,27 +1416,36 @@ struct ClassRosterStudentSetupSheet: View {
             uiView.videoPreviewLayer.session = session
             if let connection = uiView.videoPreviewLayer.connection {
                 if #available(iOS 17.0, *) {
-                    let candidateAngles: [CGFloat] = isFrontCamera ? [270, 90] : [90, 270]
-                    for portraitAngle in candidateAngles {
-                        if connection.isVideoRotationAngleSupported(portraitAngle) {
-                            connection.videoRotationAngle = portraitAngle
-                            break
-                        }
+                    if let device {
+                        uiView.rotationCoordinator = AVCaptureDevice.RotationCoordinator(
+                            device: device,
+                            previewLayer: uiView.videoPreviewLayer
+                        )
+                    }
+
+                    let previewAngle = uiView.rotationCoordinator?.videoRotationAngleForHorizonLevelPreview ?? 90
+                    let fallbackAngle: CGFloat = isFrontCamera ? 270 : 90
+                    let angle = connection.isVideoRotationAngleSupported(previewAngle)
+                        ? previewAngle
+                        : fallbackAngle
+                    if connection.isVideoRotationAngleSupported(angle) {
+                        connection.videoRotationAngle = angle
                     }
                 } else if connection.isVideoOrientationSupported {
                     connection.videoOrientation = .portrait
                 }
 
                 if connection.isVideoMirroringSupported {
-                    if !connection.automaticallyAdjustsVideoMirroring {
-                        connection.isVideoMirrored = isFrontCamera
-                    }
+                    connection.automaticallyAdjustsVideoMirroring = false
+                    connection.isVideoMirrored = isFrontCamera
                 }
             }
         }
     }
 
     private final class FaceEnrollmentCameraPreviewView: UIView {
+        var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+
         override class var layerClass: AnyClass {
             AVCaptureVideoPreviewLayer.self
         }
@@ -1314,6 +1458,143 @@ struct ClassRosterStudentSetupSheet: View {
             super.layoutSubviews()
             videoPreviewLayer.frame = bounds
         }
+    }
+}
+
+private extension UIImage {
+    func normalizedForFaceEnrollmentPortrait(isFrontCamera: Bool) -> UIImage? {
+        let uprightImage = imageWithUprightPixels()
+        guard isFrontCamera else {
+            return uprightImage
+        }
+
+        // Guard against legacy front-camera streams where portrait photos
+        // can arrive as landscape pixels while reporting an upright metadata.
+        guard uprightImage.size.width > uprightImage.size.height else {
+            return uprightImage
+        }
+
+        if let cgImage = uprightImage.cgImage {
+            return UIImage(
+                cgImage: cgImage,
+                scale: uprightImage.scale,
+                orientation: .right
+            )
+        }
+
+        return uprightImage
+    }
+
+    private func imageWithUprightPixels() -> UIImage {
+        guard imageOrientation != .up else {
+            return self
+        }
+
+        if let ciImage = CIImage(image: self),
+           let cgImage = Self.faceEnrollmentCIContext.createCGImage(
+               ciImage.oriented(faceEnrollmentCGOrientation),
+               from: ciImage.oriented(faceEnrollmentCGOrientation).extent
+           ) {
+            return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
+        }
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private var faceEnrollmentCGOrientation: CGImagePropertyOrientation {
+        switch imageOrientation {
+        case .up:
+            return .up
+        case .upMirrored:
+            return .upMirrored
+        case .down:
+            return .down
+        case .downMirrored:
+            return .downMirrored
+        case .left:
+            return .left
+        case .leftMirrored:
+            return .leftMirrored
+        case .right:
+            return .right
+        case .rightMirrored:
+            return .rightMirrored
+        @unknown default:
+            return .up
+        }
+    }
+
+    private static let faceEnrollmentCIContext = CIContext()
+}
+
+@MainActor
+private final class FaceEnrollmentCuePlayer {
+    static let shared = FaceEnrollmentCuePlayer()
+
+    private let engine = AVAudioEngine()
+    private let player = AVAudioPlayerNode()
+    private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+    private var isPrepared = false
+    private var lastPlayDate = Date.distantPast
+
+    func playReadyPing() {
+        let now = Date()
+        guard now.timeIntervalSince(lastPlayDate) > 0.8 else {
+            return
+        }
+
+        lastPlayDate = now
+
+        do {
+            try prepareIfNeeded()
+            player.stop()
+            player.scheduleBuffer(makePingBuffer(), at: nil, options: [])
+            player.play()
+        } catch {
+            return
+        }
+    }
+
+    private func prepareIfNeeded() throws {
+        if isPrepared == false {
+            try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            engine.prepare()
+            isPrepared = true
+        }
+
+        if engine.isRunning == false {
+            try engine.start()
+        }
+    }
+
+    private func makePingBuffer() -> AVAudioPCMBuffer {
+        let duration = 0.13
+        let sampleRate = format.sampleRate
+        let frameCount = AVAudioFrameCount(duration * sampleRate)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        buffer.frameLength = frameCount
+
+        guard let samples = buffer.floatChannelData?[0] else {
+            return buffer
+        }
+
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            let envelope = sin(.pi * min(max(progress, 0), 1))
+            let frequency = 1_120.0 + (180.0 * progress)
+            samples[frame] = Float(sin(2 * .pi * frequency * t) * envelope * 0.16)
+        }
+
+        return buffer
     }
 }
 
