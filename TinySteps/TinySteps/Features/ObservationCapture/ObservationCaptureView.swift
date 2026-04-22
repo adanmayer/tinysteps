@@ -1,5 +1,5 @@
 import SwiftUI
-import UIKit
+import AudioToolbox
 
 struct ObservationCaptureView: View {
     @Environment(\.dismiss) private var dismiss
@@ -8,7 +8,9 @@ struct ObservationCaptureView: View {
     @State private var model: ObservationCaptureViewModel
     @State private var isShowingDiscardConfirmation = false
     @State private var isShowingStudentPicker = false
+    @State private var isShowingStandardTagPicker = false
     @State private var selectedEvidence: ObservationEvidenceSpan?
+    @State private var selectedStandardTag: ObservationStandardTagSuggestion?
     @State private var pulse = false
 
     private let onDismiss: () -> Void
@@ -18,6 +20,7 @@ struct ObservationCaptureView: View {
         captureSession: ObservationCaptureSession,
         speechTranscriber: ObservationSpeechTranscribing,
         taggingService: ObservationTaggingService,
+        standardTaggingService: ObservationStandardTaggingService,
         standardsLoadingService: MBStandardsLoadingService,
         childMatcher: ObservationChildNameMatching,
         draftStore: ObservationCaptureDraftStore,
@@ -29,6 +32,7 @@ struct ObservationCaptureView: View {
                 captureSession: captureSession,
                 speechTranscriber: speechTranscriber,
                 taggingService: taggingService,
+                standardTaggingService: standardTaggingService,
                 standardsLoadingService: standardsLoadingService,
                 childMatcher: childMatcher,
                 draftStore: draftStore,
@@ -49,6 +53,7 @@ struct ObservationCaptureView: View {
 
                 ScrollView {
                     VStack(spacing: 26) {
+                        standardTagSection
                         unitSelectionSection
                         transcriptCard
                         quickFillTextButton
@@ -91,6 +96,19 @@ struct ObservationCaptureView: View {
                     model.addMatchedChild(studentID: student.id)
                 }
             }
+        }
+        .sheet(isPresented: $isShowingStandardTagPicker) {
+            ObservationStandardTagPickerSheet(
+                candidates: model.standardTagPickerCandidates,
+                selectedReferenceIDs: Set(model.standardTagSuggestions.map(\.referenceID)),
+                onSelect: { reference in
+                    model.addStandardTag(referenceID: reference.id)
+                    selectedStandardTag = nil
+                },
+                onDismiss: {
+                    selectedStandardTag = nil
+                }
+            )
         }
         .confirmationDialog(
             "Keep this local observation draft?",
@@ -224,6 +242,7 @@ struct ObservationCaptureView: View {
     private var quickFillTextButton: some View {
         Button("Insert sample text") {
             model.updateTranscript("Bryan is drawing a wonderful picture and is very happy with it.")
+            model.suggestTagsForCurrentTranscript()
         }
         .font(.caption.weight(.medium))
         .foregroundStyle(Color(hex: "#3A342E"))
@@ -333,6 +352,89 @@ struct ObservationCaptureView: View {
                 }
             }
         }
+    }
+
+    private var standardTagSection: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Suggested standards")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+
+                Button("Add standard") {
+                    isShowingStandardTagPicker = true
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(model.standardTagSuggestions.isEmpty ? Color(hex: "#6B8659") : Color(hex: "#3A342E"))
+                .disabled(model.standardTagPickerCandidates.isEmpty)
+            }
+
+            if model.standardTagSuggestions.isEmpty {
+                if model.standardTagPreviewHashtags.isEmpty {
+                    Text("No standards available for this unit yet.")
+                        .font(.caption)
+                        .foregroundStyle(Color(hex: "#A89E8F"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
+                        ForEach(model.standardTagPreviewHashtags, id: \.self) { hashtag in
+                            ObservationTagChip(
+                                text: hashtag,
+                                isSkeleton: true,
+                                onTap: nil,
+                                onRemove: nil
+                            )
+                        }
+                    }
+                }
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
+                    alignment: .leading,
+                    spacing: 8
+                ) {
+                    ForEach(model.standardTagSuggestions) { suggestion in
+                        ObservationTagChip(
+                            text: suggestion.displayHashtag.isEmpty ? suggestion.title : suggestion.displayHashtag,
+                            isSkeleton: false,
+                            onTap: {
+                                selectedStandardTag = suggestion
+                            },
+                            onRemove: {
+                                model.removeStandardTag(referenceID: suggestion.referenceID)
+                            }
+                        )
+                    }
+                }
+            }
+
+            if let selectedStandardTag,
+               let evidence = model.evidence(forStandardTag: selectedStandardTag) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Selected standard evidence")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(hex: "#6E6456"))
+
+                    Text(evidence)
+                        .font(.footnote)
+                        .foregroundStyle(Color(hex: "#3A342E"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: "#FFFDF8"))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+                )
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 
     private var chipBloomSection: some View {
@@ -609,6 +711,10 @@ struct ObservationCaptureView: View {
         model.hashtagValues(for: .learnerProfile)
     }
 
+    private var standardTagPreviewHashtags: [String] {
+        model.standardTagPreviewHashtags
+    }
+
     private func tagsToStrings<T: RawRepresentable>(_ values: [T]) -> [String] where T.RawValue == String {
         values.map(\.rawValue)
     }
@@ -639,9 +745,13 @@ struct ObservationCaptureView: View {
     }
 
     private func playRecordStartFeedback() {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        generator.notificationOccurred(.success)
+#if targetEnvironment(simulator)
+        return
+#else
+        // Use a short system sound instead of haptics to avoid
+        // simulator haptic engine warnings.
+        AudioServicesPlaySystemSound(1104)
+#endif
     }
 
     private func announceRecordingState(_ isRecording: Bool) {
@@ -704,6 +814,58 @@ private struct ObservationStudentPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ObservationStandardTagPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let candidates: [MBStandardReference]
+    let selectedReferenceIDs: Set<String>
+    let onSelect: (MBStandardReference) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(candidates) { reference in
+                Button {
+                    onSelect(reference)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reference.displayHashtag.isEmpty ? reference.title : reference.displayHashtag)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color(hex: "#3A342E"))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text(reference.title)
+                            .font(.footnote)
+                            .foregroundStyle(Color(hex: "#6E6456"))
+                            .lineLimit(2)
+
+                        if let detail = reference.detail, detail.isEmpty == false {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(Color(hex: "#A89E8F"))
+                                .lineLimit(2)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedReferenceIDs.contains(reference.id))
+            }
+            .navigationTitle("Select standards")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        onDismiss()
                         dismiss()
                     }
                 }
@@ -804,6 +966,7 @@ private struct ObservationSecondaryButtonStyle: ButtonStyle {
             scriptedTranscript: "Amara explained that the bridge needed to be stronger before Finn could drive across it."
         ),
         taggingService: DisabledObservationTaggingService(),
+        standardTaggingService: DisabledObservationStandardTaggingService(),
         standardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
         childMatcher: LocalObservationChildNameMatcher(),
         draftStore: InMemoryObservationCaptureDraftStore(),

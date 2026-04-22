@@ -7,6 +7,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
     var transcript: String
     var matchedChildren: [ObservationMatchedChild]
     var tags: ObservationPYPTagBundle
+    var standardTagSuggestions: [ObservationStandardTagSuggestion]
     var confidence: Double
     var evidenceSpans: [ObservationEvidenceSpan]
     var pendingRetag: Bool
@@ -22,6 +23,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         transcript: String,
         matchedChildren: [ObservationMatchedChild] = [],
         tags: ObservationPYPTagBundle = .empty,
+        standardTagSuggestions: [ObservationStandardTagSuggestion] = [],
         confidence: Double = 0,
         evidenceSpans: [ObservationEvidenceSpan] = [],
         pendingRetag: Bool = true,
@@ -36,6 +38,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         self.transcript = transcript
         self.matchedChildren = matchedChildren
         self.tags = tags
+        self.standardTagSuggestions = standardTagSuggestions
         self.confidence = confidence
         self.evidenceSpans = evidenceSpans
         self.pendingRetag = pendingRetag
@@ -52,6 +55,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         case transcript
         case matchedChildren
         case tags
+        case standardTagSuggestions
         case confidence
         case evidenceSpans
         case pendingRetag
@@ -70,6 +74,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         transcript = try container.decode(String.self, forKey: .transcript)
         matchedChildren = try container.decode([ObservationMatchedChild].self, forKey: .matchedChildren)
         tags = try container.decode(ObservationPYPTagBundle.self, forKey: .tags)
+        standardTagSuggestions = try container.decodeIfPresent([ObservationStandardTagSuggestion].self, forKey: .standardTagSuggestions) ?? []
         confidence = try container.decode(Double.self, forKey: .confidence)
         evidenceSpans = try container.decode([ObservationEvidenceSpan].self, forKey: .evidenceSpans)
         pendingRetag = try container.decode(Bool.self, forKey: .pendingRetag)
@@ -88,6 +93,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         try container.encode(transcript, forKey: .transcript)
         try container.encode(matchedChildren, forKey: .matchedChildren)
         try container.encode(tags, forKey: .tags)
+        try container.encode(standardTagSuggestions, forKey: .standardTagSuggestions)
         try container.encode(confidence, forKey: .confidence)
         try container.encode(evidenceSpans, forKey: .evidenceSpans)
         try container.encode(pendingRetag, forKey: .pendingRetag)

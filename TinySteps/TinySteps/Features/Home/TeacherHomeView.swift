@@ -15,7 +15,9 @@ struct TeacherHomeView: View {
     let observationDraftStore: ObservationCaptureDraftStore
     let observationDraftPublisher: ObservationDraftPublishing
     let observationTaggingService: ObservationTaggingService
+    let observationStandardTaggingService: ObservationStandardTaggingService
     let standardsLoadingService: MBStandardsLoadingService
+    let onClearCache: () async -> Void
     let observationSpeechTranscriber: ObservationSpeechTranscribing
     let observationChildMatcher: ObservationChildNameMatching
     let onShowClassSwitcher: () -> Void
@@ -69,6 +71,9 @@ struct TeacherHomeView: View {
                 onCaptureObservation: { launchContext in
                     observationCaptureSession = ObservationCaptureSession(launchContext: launchContext)
                 },
+                onClearCache: {
+                    await onClearCache()
+                },
                 onTapStudent: { selectedStudent = $0 }
             )
             .id(rosterReloadToken)
@@ -94,14 +99,15 @@ struct TeacherHomeView: View {
             )
         }
         .fullScreenCover(item: $observationCaptureSession) { selectedObservationSession in
-            ObservationCaptureView(
-                captureSession: selectedObservationSession,
-                speechTranscriber: observationSpeechTranscriber,
-                taggingService: observationTaggingService,
-                standardsLoadingService: standardsLoadingService,
-                childMatcher: observationChildMatcher,
-                draftStore: observationDraftStore,
-                session: session,
+                ObservationCaptureView(
+                    captureSession: selectedObservationSession,
+                    speechTranscriber: observationSpeechTranscriber,
+                    taggingService: observationTaggingService,
+                    standardTaggingService: observationStandardTaggingService,
+                    standardsLoadingService: standardsLoadingService,
+                    childMatcher: observationChildMatcher,
+                    draftStore: observationDraftStore,
+                    session: session,
                 onDismiss: {
                     self.observationCaptureSession = nil
                     Task {
@@ -207,7 +213,9 @@ struct TeacherHomeView_Previews: PreviewProvider {
             observationDraftStore: InMemoryObservationCaptureDraftStore(),
             observationDraftPublisher: UnavailableObservationDraftPublisher(),
             observationTaggingService: DisabledObservationTaggingService(),
+            observationStandardTaggingService: DisabledObservationStandardTaggingService(),
             standardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
+            onClearCache: {},
             observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
             observationChildMatcher: LocalObservationChildNameMatcher(),
             onShowClassSwitcher: {},

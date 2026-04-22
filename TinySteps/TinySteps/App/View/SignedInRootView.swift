@@ -15,6 +15,7 @@ struct SignedInRootView: View {
     private let observationDraftStore: ObservationCaptureDraftStore
     private let observationDraftPublisher: ObservationDraftPublishing
     private let observationTaggingService: ObservationTaggingService
+    private let observationStandardTaggingService: ObservationStandardTaggingService
     private let standardsLoadingService: MBStandardsLoadingService
     private let observationSpeechTranscriber: ObservationSpeechTranscribing
     private let observationChildMatcher: ObservationChildNameMatching
@@ -44,6 +45,7 @@ struct SignedInRootView: View {
         self.observationDraftStore = dependencies.observationDraftStore
         self.observationDraftPublisher = dependencies.observationDraftPublisher
         self.observationTaggingService = dependencies.observationTaggingService
+        self.observationStandardTaggingService = dependencies.observationStandardTaggingService
         self.standardsLoadingService = dependencies.standardsLoadingService
         self.observationSpeechTranscriber = dependencies.observationSpeechTranscriber
         self.observationChildMatcher = dependencies.observationChildMatcher
@@ -99,7 +101,12 @@ struct SignedInRootView: View {
                             observationDraftStore: observationDraftStore,
                             observationDraftPublisher: observationDraftPublisher,
                             observationTaggingService: observationTaggingService,
+                            observationStandardTaggingService: observationStandardTaggingService,
                             standardsLoadingService: standardsLoadingService,
+                            onClearCache: {
+                                await sessionModel.clearClassCacheAndReload()
+                                await standardsLoadingService.clearCache()
+                            },
                             observationSpeechTranscriber: observationSpeechTranscriber,
                             observationChildMatcher: observationChildMatcher,
                             onShowClassSwitcher: {

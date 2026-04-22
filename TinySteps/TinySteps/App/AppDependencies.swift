@@ -21,6 +21,7 @@ final class AppDependencies {
     let observationDraftStore: ObservationCaptureDraftStore
     let observationDraftPublisher: ObservationDraftPublishing
     let observationTaggingService: ObservationTaggingService
+    let observationStandardTaggingService: ObservationStandardTaggingService
     let standardsLoadingService: MBStandardsLoadingService
     let observationSpeechTranscriber: ObservationSpeechTranscribing
     let observationChildMatcher: ObservationChildNameMatching
@@ -40,6 +41,7 @@ final class AppDependencies {
         observationDraftStore: ObservationCaptureDraftStore = FileObservationCaptureDraftStore(),
         observationDraftPublisher: ObservationDraftPublishing,
         observationTaggingService: ObservationTaggingService = DisabledObservationTaggingService(),
+        observationStandardTaggingService: ObservationStandardTaggingService = DisabledObservationStandardTaggingService(),
         standardsLoadingService: MBStandardsLoadingService = MBStandardsLoadingServiceImpl(
             credentialsProvider: DemoMBAPICredentialsProvider(),
             client: MBLiveClient()
@@ -61,6 +63,7 @@ final class AppDependencies {
         self.observationDraftStore = observationDraftStore
         self.observationDraftPublisher = observationDraftPublisher
         self.observationTaggingService = observationTaggingService
+        self.observationStandardTaggingService = observationStandardTaggingService
         self.standardsLoadingService = standardsLoadingService
         self.observationSpeechTranscriber = observationSpeechTranscriber
         self.observationChildMatcher = observationChildMatcher
@@ -85,6 +88,12 @@ final class AppDependencies {
 
         let faceCaptureDraftStore: FaceCaptureDraftStore = InMemoryFaceCaptureDraftStore()
         let observationDraftStore: ObservationCaptureDraftStore = FileObservationCaptureDraftStore()
+        let observationStandardTaggingService: ObservationStandardTaggingService = {
+            if let configuration = LocalObservationStandardTaggingConfiguration.resolveEnabled() {
+                return OllamaObservationStandardTaggingService(configuration: configuration)
+            }
+            return DisabledObservationStandardTaggingService()
+        }()
 
         return AppDependencies(
             authController: auth.authController,
@@ -99,6 +108,7 @@ final class AppDependencies {
             observationDraftStore: observationDraftStore,
             observationDraftPublisher: UnavailableObservationDraftPublisher(),
             observationTaggingService: DisabledObservationTaggingService(),
+            observationStandardTaggingService: observationStandardTaggingService,
             standardsLoadingService: features.standardsLoadingService,
             observationSpeechTranscriber: AppleObservationSpeechTranscriber(),
             observationChildMatcher: LocalObservationChildNameMatcher(),

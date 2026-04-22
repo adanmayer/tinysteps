@@ -8,6 +8,7 @@ final class ObservationCaptureViewModel {
     private(set) var transcript = ""
     private(set) var matchedChildren: [ObservationMatchedChild] = []
     private(set) var tags: ObservationPYPTagBundle = .empty
+    private(set) var standardTagSuggestions: [ObservationStandardTagSuggestion] = []
     private(set) var confidence: Double = 0
     private(set) var evidenceSpans: [ObservationEvidenceSpan] = []
     private(set) var pendingRetag = true
@@ -16,11 +17,16 @@ final class ObservationCaptureViewModel {
     private let captureSession: ObservationCaptureSession
     private let speechTranscriber: ObservationSpeechTranscribing
     private let taggingService: ObservationTaggingService
+    private let standardTaggingService: ObservationStandardTaggingService
     private let standardsLoadingService: MBStandardsLoadingService
     private let childMatcher: ObservationChildNameMatching
     private let draftStore: ObservationCaptureDraftStore
     private let authSession: AuthSession
+    private let standardTaggingCandidateBuilder = ObservationStandardTaggingCandidateBuilder()
+    private let maxStandardCandidates = 40
+    private let maxStandardTagSuggestions = 4
     private var activeTranscriptTask: Task<Void, Never>?
+    private var standardTagUpdateTask: Task<Void, Never>?
     private var hasPrepared = false
     private var hasLoadedStandards = false
     private var isLoadingStandards = false
@@ -32,11 +38,13 @@ final class ObservationCaptureViewModel {
     private(set) var standardsLoadResult: MBStandardsLoadResult?
     private var dismissedChildMatchKeys: Set<String> = []
     private var manuallyAssignedChildKeys: Set<String> = []
+    private var manuallyExcludedStandardTagIDs: Set<String> = []
 
     init(
         captureSession: ObservationCaptureSession,
         speechTranscriber: ObservationSpeechTranscribing,
         taggingService: ObservationTaggingService,
+        standardTaggingService: ObservationStandardTaggingService,
         standardsLoadingService: MBStandardsLoadingService,
         childMatcher: ObservationChildNameMatching,
         draftStore: ObservationCaptureDraftStore,
@@ -45,6 +53,7 @@ final class ObservationCaptureViewModel {
         self.captureSession = captureSession
         self.speechTranscriber = speechTranscriber
         self.taggingService = taggingService
+        self.standardTaggingService = standardTaggingService
         self.standardsLoadingService = standardsLoadingService
         self.childMatcher = childMatcher
         self.draftStore = draftStore
@@ -119,12 +128,40 @@ final class ObservationCaptureViewModel {
         unitSections.isEmpty == false
     }
 
+    var standardTagPreviewHashtags: [String] {
+        let references = selectedUnitSection?.references ?? []
+        return ObservationStandardTaggingCandidateBuilder()
+            .candidatePreviewHashtags(for: references)
+            .prefix(4)
+            .map { $0.isEmpty ? "—" : $0 }
+    }
+
+    var standardTagPickerCandidates: [MBStandardReference] {
+        let references = selectedUnitSection?.references ?? []
+        return references
+            .uniqueByID()
+            .filter { candidate in
+                standardTagSuggestions.contains { $0.referenceID == candidate.id } == false
+            }
+            .sorted {
+                if $0.kind == $1.kind {
+                    return $0.title.lowercased() < $1.title.lowercased()
+                }
+                return $0.kind.rawValue < $1.kind.rawValue
+            }
+    }
+
     func selectUnit(id unitID: String) {
         guard unitSections.contains(where: { $0.id == unitID }) else {
             return
         }
 
+        guard selectedUnitID != unitID else {
+            return
+        }
+
         selectedUnitID = unitID
+        manualStandardTagUnitDidChange(to: unitID)
     }
 
     func filteredTagValues(_ values: [String], for category: ObservationPYPTagCategory) -> [String] {
@@ -268,7 +305,33 @@ final class ObservationCaptureViewModel {
             tags = .empty
             confidence = 0
             evidenceSpans = []
+            standardTagSuggestions = []
+            manuallyExcludedStandardTagIDs.removeAll()
             pendingRetag = true
+        }
+    }
+
+    func suggestTagsForCurrentTranscript() {
+        guard hasTranscript else {
+            statusMessage = "No transcript to tag yet. Record or insert sample text first."
+            state = .ready
+            return
+        }
+
+        guard state != .recording,
+              state != .requestingPermission,
+              state != .transcribing else {
+            statusMessage = "Finish recording before requesting tags."
+            return
+        }
+
+        if state == .suggestingTags {
+            statusMessage = "Tagging is already running."
+            return
+        }
+
+        Task {
+            await suggestTags()
         }
     }
 
@@ -300,6 +363,7 @@ final class ObservationCaptureViewModel {
             transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
             matchedChildren: matchedChildren,
             tags: tags,
+            standardTagSuggestions: standardTagSuggestions,
             confidence: confidence,
             evidenceSpans: evidenceSpans,
             pendingRetag: pendingRetag,
@@ -366,7 +430,47 @@ final class ObservationCaptureViewModel {
     func removeTag(category: ObservationPYPTagCategory, value: String) {
         tags.remove(category: category, value: value)
         evidenceSpans.removeAll { $0.category == category && $0.value == value }
-        pendingRetag = tags.isEmpty
+        pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
+    }
+
+    func removeStandardTag(referenceID: String) {
+        manuallyExcludedStandardTagIDs.insert(referenceID)
+        standardTagSuggestions.removeAll { $0.referenceID == referenceID }
+        pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
+    }
+
+    func addStandardTag(referenceID: String) {
+        guard let candidate = referenceForStandardTag(referenceID: referenceID),
+              standardTagSuggestions.contains(where: { $0.referenceID == referenceID }) == false else {
+            return
+        }
+
+        manuallyExcludedStandardTagIDs.remove(referenceID)
+        let suggestion = ObservationStandardTagSuggestion(
+            referenceID: candidate.id,
+            sourceID: candidate.sourceID,
+            kind: candidate.kind,
+            classID: candidate.classID,
+            unitID: candidate.unitID,
+            unitTitle: candidate.unitTitle,
+            programCode: candidate.programCode,
+            code: candidate.code,
+            title: candidate.title,
+            detail: candidate.detail,
+            displayHashtag: candidate.displayHashtag,
+            evidenceQuotes: [],
+            selectionSource: .manual
+        )
+        standardTagSuggestions.append(suggestion)
+        pendingRetag = false
+    }
+
+    func evidence(forStandardTag suggestion: ObservationStandardTagSuggestion) -> String? {
+        guard suggestion.evidenceQuotes.isEmpty == false else {
+            return nil
+        }
+
+        return suggestion.evidenceQuotes.first
     }
 
     func evidence(for category: ObservationPYPTagCategory, value: String) -> ObservationEvidenceSpan? {
@@ -469,14 +573,49 @@ final class ObservationCaptureViewModel {
     private func syncSelectedUnit(from result: MBStandardsLoadResult) {
         guard result.unitSections.isEmpty == false else {
             selectedUnitID = nil
+            standardTagSuggestions = []
+            manuallyExcludedStandardTagIDs.removeAll()
             return
         }
 
         if let selectedUnitID, result.unitSections.contains(where: { $0.id == selectedUnitID }) {
+            refreshStandardTagsIfNeeded(forUnitID: selectedUnitID)
             return
         }
 
         selectedUnitID = result.unitSections.first?.id
+        if let selectedUnitID {
+            refreshStandardTagsIfNeeded(forUnitID: selectedUnitID)
+        }
+    }
+
+    private func manualStandardTagUnitDidChange(to unitID: String) {
+        standardTagSuggestions.removeAll()
+        manuallyExcludedStandardTagIDs.removeAll()
+        pendingRetag = true
+        refreshStandardTagsIfNeeded(forUnitID: unitID)
+    }
+
+    private func refreshStandardTagsIfNeeded(forUnitID unitID: String) {
+        standardTagUpdateTask?.cancel()
+
+        guard selectedUnitID == unitID,
+              selectedUnitSection?.id == unitID,
+              hasTranscript else {
+            return
+        }
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            guard self.selectedUnitID == unitID else {
+                return
+            }
+
+            self.standardTagSuggestions = []
+            await self.suggestStandardTags()
+        }
+
+        standardTagUpdateTask = task
     }
 
     private func supportedTagValues(for category: ObservationPYPTagCategory, in references: [MBStandardReference]) -> Set<String> {
@@ -555,32 +694,178 @@ final class ObservationCaptureViewModel {
         state = .suggestingTags
         tags = .empty
         confidence = 0
+        standardTagSuggestions = standardTagSuggestions.filter { $0.selectionSource == .manual }
         evidenceSpans = []
         pendingRetag = true
         statusMessage = nil
 
         do {
-            for try await event in taggingService.suggestTags(
-                transcript: transcript,
-                classContext: captureSession
-            ) {
-                switch event {
-                case .suggestions(let result):
-                    tags = result.tags
-                    confidence = result.confidence
-                    evidenceSpans = result.evidenceSpans
-                    pendingRetag = result.pendingRetag
-                case .unavailable:
-                    pendingRetag = true
-                }
-            }
+            try await suggestPYPTags()
+            await suggestStandardTags()
 
+            pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
+            if pendingRetag {
+                statusMessage = "No tags were suggested for this transcript. You can add tags manually."
+            }
             state = .draftReady
         } catch {
             pendingRetag = true
-            statusMessage = "Tagging failed. This transcript can still be saved as a local draft."
+            statusMessage = "Tagging failed: \(error.localizedDescription). This transcript can still be saved as a local draft."
             state = .draftReady
         }
+    }
+
+    private func suggestPYPTags() async throws {
+        for try await event in taggingService.suggestTags(
+            transcript: transcript,
+            classContext: captureSession
+        ) {
+            switch event {
+            case .suggestions(let result):
+                tags = result.tags
+                confidence = max(confidence, result.confidence)
+                evidenceSpans = result.evidenceSpans
+                if result.tags.isEmpty == false {
+                    pendingRetag = false
+                    statusMessage = nil
+                }
+            case .unavailable:
+                pendingRetag = true
+                statusMessage = "PYP tags are currently unavailable. Add tags manually."
+            }
+        }
+    }
+
+    private func suggestStandardTags() async {
+        guard let selectedUnitSection else {
+            statusMessage = "No learning unit is selected for standard tagging."
+            return
+        }
+
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTranscript.isEmpty == false else {
+            statusMessage = "No transcript text available for standard tagging."
+            return
+        }
+
+        let candidates = standardTaggingCandidateBuilder.buildCandidates(
+            from: selectedUnitSection,
+            transcript: trimmedTranscript,
+            maxCandidates: maxStandardCandidates
+        )
+
+        if candidates.isEmpty {
+            statusMessage = "No standard candidates for this unit."
+            return
+        }
+
+        let candidateLookup = candidateLookup(from: candidates)
+        let request = ObservationStandardTaggingRequest(
+            classID: captureSession.classID,
+            className: captureSession.className,
+            selectedUnitID: selectedUnitSection.id,
+            selectedUnitTitle: selectedUnitSection.unitTitle,
+            transcript: trimmedTranscript,
+            candidates: candidates,
+            excludedSuggestionIDs: manuallyExcludedStandardTagIDs,
+            candidateLookup: candidateLookup
+        )
+
+        do {
+            for try await event in standardTaggingService.suggestStandardTags(request: request) {
+                switch event {
+                case .partial(let suggestions):
+                    replaceStandardTagSuggestions(with: suggestions, mergeManual: true)
+                    if suggestions.isEmpty == false {
+                        statusMessage = nil
+                    }
+                case .suggestions(let result):
+                    replaceStandardTagSuggestions(with: result.suggestions, mergeManual: true)
+                    confidence = max(confidence, result.confidence)
+                    if result.suggestions.isEmpty == false {
+                        pendingRetag = false
+                        statusMessage = nil
+                    } else if tags.isEmpty {
+                        statusMessage = "No standard tags were suggested for this unit."
+                    }
+                case .unavailable:
+                    if pendingRetag && tags.isEmpty && standardTagSuggestions.isEmpty {
+                        pendingRetag = true
+                    }
+                    statusMessage = "Standard tagging is unavailable right now. Add tags manually."
+                }
+            }
+        } catch {
+            if tags.isEmpty && standardTagSuggestions.isEmpty {
+                statusMessage = "Standard tagging failed: \(error.localizedDescription). This transcript can still be saved as a local draft."
+            }
+        }
+    }
+
+    private func replaceStandardTagSuggestions(
+        with suggestions: [ObservationStandardTagSuggestion],
+        mergeManual: Bool
+    ) {
+        var merged: [ObservationStandardTagSuggestion] = []
+        var seen = Set<String>()
+
+        let manualSuggestions = mergeManual
+            ? standardTagSuggestions.filter { $0.selectionSource == .manual }
+            : []
+
+        for suggestion in manualSuggestions {
+            guard seen.insert(suggestion.referenceID).inserted else {
+                continue
+            }
+            merged.append(suggestion)
+        }
+
+        for suggestion in suggestions {
+            guard manuallyExcludedStandardTagIDs.contains(suggestion.referenceID) == false else {
+                continue
+            }
+            guard seen.insert(suggestion.referenceID).inserted else {
+                continue
+            }
+            merged.append(suggestion)
+
+            if merged.count >= maxStandardTagSuggestions {
+                break
+            }
+        }
+
+        standardTagSuggestions = merged
+    }
+
+    private func referenceForStandardTag(referenceID: String) -> MBStandardReference? {
+        selectedUnitSection?.references.first(where: { $0.id == referenceID })
+    }
+
+    private func candidateLookup(from candidates: [ObservationStandardTagCandidate]) -> [String: MBStandardReference] {
+        var lookup: [String: MBStandardReference] = [:]
+
+        for candidate in candidates {
+            guard lookup[candidate.id] == nil else {
+                continue
+            }
+
+            lookup[candidate.id] = MBStandardReference(
+                kind: candidate.kind,
+                classID: candidate.classID,
+                unitID: candidate.unitID,
+                unitTitle: candidate.unitTitle,
+                programCode: candidate.programCode,
+                sourceID: candidate.sourceID,
+                code: candidate.code,
+                title: candidate.title,
+                detail: candidate.detail,
+                isUnresolvedTheme: false,
+                displayHashtag: candidate.displayHashtag,
+                stableIdentity: candidate.stableIdentity
+            )
+        }
+
+        return lookup
     }
 
     private func consumeTranscriptEvent(_ event: ObservationTranscriptEvent) {
@@ -625,6 +910,8 @@ final class ObservationCaptureViewModel {
         dismissedChildMatchKeys = []
         manuallyAssignedChildKeys = []
         tags = .empty
+        standardTagSuggestions = []
+        manuallyExcludedStandardTagIDs.removeAll()
         confidence = 0
         evidenceSpans = []
         pendingRetag = true
@@ -644,9 +931,11 @@ final class ObservationCaptureViewModel {
         dismissedChildMatchKeys = draft.dismissedChildMatchKeys
         manuallyAssignedChildKeys = Set(draft.matchedChildren.map(\.studentKey))
         tags = draft.tags
+        standardTagSuggestions = draft.standardTagSuggestions
         confidence = draft.confidence
         evidenceSpans = draft.evidenceSpans
         pendingRetag = draft.pendingRetag
+        manuallyExcludedStandardTagIDs.removeAll()
     }
 
     private func isDismissedMatchedChild(_ child: ObservationMatchedChild) -> Bool {
@@ -672,5 +961,18 @@ final class ObservationCaptureViewModel {
             matchText: student.displayName,
             confidence: 1
         )
+    }
+}
+
+private extension Array where Element == MBStandardReference {
+    func uniqueByID() -> [MBStandardReference] {
+        var seen: Set<String> = []
+        return filter { candidate in
+            guard seen.contains(candidate.id) == false else {
+                return false
+            }
+            seen.insert(candidate.id)
+            return true
+        }
     }
 }

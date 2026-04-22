@@ -11,6 +11,7 @@ struct ClassRosterView: View {
     let onShowClassSettings: () -> Void
     let onCaptureImage: ([ClassRosterStudent]) -> Void
     let onCaptureObservation: (ObservationCaptureLaunchContext) -> Void
+    let onClearCache: () async -> Void
     let canShowClassSwitcher: Bool
     let onTapStudent: (ClassRosterStudent) -> Void
     let classesService: ClassesService
@@ -18,6 +19,7 @@ struct ClassRosterView: View {
 
     @State private var model: ClassRosterModel
     @State private var isShowingClassActions = false
+    @State private var cacheStatusMessage: String?
 
     init(
         session: AuthSession,
@@ -32,6 +34,7 @@ struct ClassRosterView: View {
         onShowClassSettings: @escaping () -> Void,
         onCaptureImage: @escaping ([ClassRosterStudent]) -> Void,
         onCaptureObservation: @escaping (ObservationCaptureLaunchContext) -> Void,
+        onClearCache: @escaping () async -> Void,
         onTapStudent: @escaping (ClassRosterStudent) -> Void
     ) {
         self.session = session
@@ -46,6 +49,7 @@ struct ClassRosterView: View {
         self.onShowClassSettings = onShowClassSettings
         self.onCaptureImage = onCaptureImage
         self.onCaptureObservation = onCaptureObservation
+        self.onClearCache = onClearCache
         self.onTapStudent = onTapStudent
         _model = State(
             initialValue: ClassRosterModel(
@@ -81,6 +85,13 @@ struct ClassRosterView: View {
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 24)
                             .padding(.top, 10)
+                    }
+                    if let cacheStatusMessage {
+                        Text(cacheStatusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(Color(hex: "#6E6456"))
+                            .padding(.horizontal, 24)
+                            .padding(.top, 2)
                     }
 
                     if model.isSearchEmpty {
@@ -205,6 +216,16 @@ struct ClassRosterView: View {
                     if let observationLaunchContext, model.isLoading == false {
                         Button("Capture observation") {
                             onCaptureObservation(observationLaunchContext)
+                        }
+                    }
+
+                    Button("Clear cache") {
+                        Task {
+                            cacheStatusMessage = "Clearing local cache…"
+                            await onClearCache()
+                            cacheStatusMessage = "Local cache cleared."
+                            try? await Task.sleep(nanoseconds: 2200_000_000)
+                            cacheStatusMessage = nil
                         }
                     }
 

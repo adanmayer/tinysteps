@@ -169,6 +169,20 @@ final class SignedInSessionModel {
         await reload()
     }
 
+    func clearClassCacheAndReload() async {
+        guard resolvedRole == .teacher || resolvedRole == .advisor || resolvedRole == .student else {
+            return
+        }
+
+        availableClasses = []
+        selectedClassContext = .allClasses
+        hasLoaded = false
+        errorMessage = nil
+        classSelectionStore.clearSelection(for: session)
+
+        await loadIfNeeded()
+    }
+
     func reload() async {
         isLoading = true
         errorMessage = nil
