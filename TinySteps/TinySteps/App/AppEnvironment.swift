@@ -5,7 +5,7 @@ struct AppEnvironment: Sendable {
     let oauth: OAuthEnvironment
 
     static let live = AppEnvironment(
-        apiBaseURL: URL(string: "https://api.managebac.com")!,
+        apiBaseURL: URL(string: "https://api-faria.devel.managebac.com")!,
         oauth: .manageBac
     )
 }
@@ -19,6 +19,7 @@ struct OAuthEnvironment: Sendable {
     let postLogoutActivationPath: String?
     let deepLinkBaseURL: URL?
     let customLogoutEndpoint: URL?
+    let signInHostOverride: URL?
     let authorizationEndpointPath: String
     let tokenEndpointPath: String
     let settingsEndpointPath: String
@@ -32,6 +33,7 @@ struct OAuthEnvironment: Sendable {
         postLogoutActivationPath: "/oauth/logoutcallback",
         deepLinkBaseURL: nil,
         customLogoutEndpoint: nil,
+        signInHostOverride: URL(string: "https://signin-faria.devel.managebac.com")!,
         authorizationEndpointPath: "/oauth/authorize",
         tokenEndpointPath: "/oauth/token",
         settingsEndpointPath: "/oauth/authorize/info"

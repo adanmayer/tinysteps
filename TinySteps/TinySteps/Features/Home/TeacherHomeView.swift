@@ -11,6 +11,11 @@ struct TeacherHomeView: View {
     let classesService: ClassesService
     let faceEnrollmentStore: FaceEnrollmentStore
     let faceCaptureDraftStore: FaceCaptureDraftStore
+    let observationDraftStore: ObservationCaptureDraftStore
+    let observationTaggingService: ObservationTaggingService
+    let standardsLoadingService: MBStandardsLoadingService
+    let observationSpeechTranscriber: ObservationSpeechTranscribing
+    let observationChildMatcher: ObservationChildNameMatching
     let onShowClassSwitcher: () -> Void
     let onSignOut: () -> Void
 
@@ -18,10 +23,11 @@ struct TeacherHomeView: View {
     @State private var selectedStudent: ClassRosterStudent?
     @State private var rosterReloadToken = UUID()
     @State private var captureSession: FaceCaptureSession?
+    @State private var observationCaptureSession: ObservationCaptureSession?
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            placeholderTab("Today", systemImage: "camera")
+            todayTab
                 .tag(0)
                 .tabItem {
                     Label("Today", systemImage: "camera")
@@ -56,6 +62,9 @@ struct TeacherHomeView: View {
                         rosterSnapshot: students.map(FaceCaptureStudentSnapshot.init)
                     )
                 },
+                onCaptureObservation: { launchContext in
+                    observationCaptureSession = ObservationCaptureSession(launchContext: launchContext)
+                },
                 onTapStudent: { selectedStudent = $0 }
             )
             .id(rosterReloadToken)
@@ -69,14 +78,28 @@ struct TeacherHomeView: View {
             selectedTab = 2
         }
         .toolbar(.visible, for: .tabBar)
-            .fullScreenCover(item: $captureSession) { selectedCaptureSession in
-                FaceCaptureView(
-                    session: session,
-                    captureSession: selectedCaptureSession,
+        .fullScreenCover(item: $captureSession) { selectedCaptureSession in
+            FaceCaptureView(
+                session: session,
+                captureSession: selectedCaptureSession,
                 faceEnrollmentStore: faceEnrollmentStore,
                 draftStore: faceCaptureDraftStore,
                 onSaved: {
                     self.captureSession = nil
+                }
+            )
+        }
+        .fullScreenCover(item: $observationCaptureSession) { selectedObservationSession in
+            ObservationCaptureView(
+                captureSession: selectedObservationSession,
+                speechTranscriber: observationSpeechTranscriber,
+                taggingService: observationTaggingService,
+                standardsLoadingService: standardsLoadingService,
+                childMatcher: observationChildMatcher,
+                draftStore: observationDraftStore,
+                session: session,
+                onDismiss: {
+                    self.observationCaptureSession = nil
                 }
             )
         }
@@ -94,6 +117,32 @@ struct TeacherHomeView: View {
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(20)
         }
+    }
+
+    private var todayTab: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "camera")
+                .font(.system(size: 42))
+                .foregroundStyle(.secondary)
+            Text("Today")
+                .font(.title3.weight(.semibold))
+            Text("Placeholder tab for Today.")
+                .foregroundStyle(.secondary)
+
+            Button(role: .destructive, action: onSignOut) {
+                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
+            .padding(.top, 8)
+            .accessibilityLabel("Sign out")
+
+            Spacer()
+        }
+        .padding(.top, 16)
     }
 
     private func placeholderTab(_ title: String, systemImage: String) -> some View {
@@ -120,12 +169,17 @@ struct TeacherHomeView_Previews: PreviewProvider {
             session: .previewTeacher,
             classContext: .allClasses,
             selectedClass: nil,
-            selectedContextTitle: "All Classes",
-            selectedContextSubtitle: "3 classes",
-            canShowClassSwitcher: true,
+                selectedContextTitle: "All Classes",
+                selectedContextSubtitle: "3 classes",
+                canShowClassSwitcher: true,
                 classesService: MBClassesService.preview(),
                 faceEnrollmentStore: FaceEnrollmentStoreUnavailable(),
                 faceCaptureDraftStore: InMemoryFaceCaptureDraftStore(),
+                observationDraftStore: InMemoryObservationCaptureDraftStore(),
+                observationTaggingService: DisabledObservationTaggingService(),
+                standardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
+                observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
+                observationChildMatcher: LocalObservationChildNameMatcher(),
                 onShowClassSwitcher: {},
                 onSignOut: {}
             )

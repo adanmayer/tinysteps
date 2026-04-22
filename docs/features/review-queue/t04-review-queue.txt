@@ -1,0 +1,50 @@
+This is the T4 — Review Queue screen of TinySteps. End-of-day. Teacher scrolls through draft observations to publish. Cards-as-reading-list feel. 390px wide mobile iPhone screen. Light mode.
+
+Page background warm cream #FBF6EE. Nunito Sans throughout.
+
+LAYOUT top to bottom:
+
+1. Status bar safe area.
+
+2. Header (16px top, 20px horizontal): class picker pill "Blue Room" 44pt (left, card-bg #FFFDF8, warm shadow, chevron-down). Right: unpublished count badge — sage-tinted 14% pill "7 ready" 13px Medium sage #6B8659, 28pt tall, full pill radius.
+
+3. Title row (20px below header, 20px horizontal): H1 "Review" 28px Semi-Bold warm charcoal. Subtitle "Thursday, 23 April · 7 moments waiting" 13px Regular soft olive-brown.
+
+4. Type filter strip (20px top gap, horizontally scrollable): seven pill chips 36pt tall, full pill, card-bg-elevated #F5EDE0, hairline border-subtle. First chip "All" ACTIVE — sage 14% tint fill, sage #6B8659 1.5px border, sage text 13px Medium. Then chips with tiny 16pt Lucide icons: Note, Photo, Image, Video, File, Website. Inactive chips use warm charcoal icon + label.
+
+5. DRAFT CARDS (scrolling feed, 20px horizontal, 16px gap between cards). Show four cards:
+
+   CARD 1 (Note type, READY):
+   - 22px radius, card-bg #FFFDF8, warm outer shadow, 18px padding, hairline border-subtle 0.5px.
+   - A 4px-wide SAGE #8DA67A accent bar on the LEFT edge (full card height, matching card radius at corners). This marks "ready".
+   - Header row: small note-icon 16pt sage in a 28pt card-bg-elevated circle, then "Amara · 09:14" 13px Medium soft olive-brown. On the far right a tiny dusty-rose 6pt filled dot (paired-guardian-hearted indicator) — binary, no count.
+   - Body (16px top gap): "I saw Amara stack the red cups, very carefully, one on top of the other, and she counted them in Somali and English." 16px Regular warm charcoal (3 lines shown with faint fade at the end if truncated).
+   - Chip rail (12px top gap): four sage pills "Inquirer", "Communicator", "Mathematics", "Identity" (14% tint, 1.5px sage border, sage label 13px Medium). Each chip has a tiny "×" affordance 10pt soft olive-brown on hover — show on the first chip only.
+   - Attributed children row (12px top gap): three 32pt avatars (Amara sage-ringed, a "+" ghost circle). Small caption "Amara" 11px Medium below first avatar.
+   - Actions row (12px top gap, right-aligned): three buttons.
+     * "Publish" — primary sage pill 36pt, sage gradient #8DA67A → #6B8659, white 14px Semi-Bold, 16px horizontal padding.
+     * "Save" — text link warm charcoal 14px Medium.
+     * "Delete" — text link status-negative #C97A6E 14px Medium.
+
+   CARD 2 (Photo type, READY):
+   - Same styling with SAGE left accent. Header: small photo-icon 16pt sage, "Priya · 10:02", no heart pip.
+   - Hero: 16:9 photo thumbnail (16px radius nested, warm vignette) showing a water tray with three small hands. Below photo: "The girls built a little river this afternoon." 16px warm charcoal.
+   - Chips: "Collaboration", "Science".
+   - Avatars: Amara, Leo, Noor (three 32pt). Publish/Save/Delete row.
+
+   CARD 3 (Child-voice, DRAFT):
+   - 22px radius, but with HONEY-GOLD #E6B469 4px left accent bar (marks "draft — not yet published").
+   - Header: small mic-icon 16pt honey-gold, "Amara's voice · 14s · yesterday", meta "Draft".
+   - Hero: honey-gold 1.5px bordered audio card — sage 3px waveform line, duration "14s" on the right, small sage play triangle 16pt.
+   - Body: transcript "…I made a rainbow!" in italic 15px warm charcoal on a card-bg-elevated sub-card 14px radius.
+   - Chips: "Creative", "Communicator".
+   - Actions: Publish primary sage (but slightly dimmed — waiting on consent?), Save link, Delete link.
+
+   CARD 4 (Note, DRAFT, partial tags):
+   - 22px radius, HONEY-GOLD #E6B469 left accent. Header "Priya · 2:40 pm". Body "Noor pointed to the clouds and said 'dragon coming'." Chips: "Communicator" only + two skeleton chips (pale sand shimmer) with caption "Tags catching up…" 11px honey-gold. Publish button dimmed "Waiting for tags". Save/Delete links.
+
+6. Scroll-gated STICKY BOTTOM CTA (16px above tab bar): a sage gradient pill, full width minus 20px horizontal margin, 52pt tall, 28px radius. Label "Publish 7 seen moments" in white 16px Semi-Bold, with a small 18pt Lucide paper-plane icon on the left. Subtle warm outer shadow. Small caption above the pill (4px gap, centered, 11px soft olive-brown): "Scroll through to confirm — only seen moments publish".
+
+7. Floating tab bar (8px above home indicator): three tabs — Today (inactive), Review (ACTIVE sage with 3pt sage dot beneath), Class (inactive with "paired 2" honey-gold dot on users icon).
+
+VISUAL FEEL: calm reading list, not a task manager. Left accent bars (sage = ready, honey = draft) do the colour work alongside labels. Each card breathes. Warm shadows. Every corner rounded.

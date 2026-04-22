@@ -1,0 +1,524 @@
+import Foundation
+import Observation
+
+@Observable
+@MainActor
+final class ObservationCaptureViewModel {
+    private(set) var state: ObservationCaptureState = .idle
+    private(set) var transcript = ""
+    private(set) var matchedChildren: [ObservationMatchedChild] = []
+    private(set) var tags: ObservationPYPTagBundle = .empty
+    private(set) var confidence: Double = 0
+    private(set) var evidenceSpans: [ObservationEvidenceSpan] = []
+    private(set) var pendingRetag = true
+    private(set) var statusMessage: String?
+
+    private let captureSession: ObservationCaptureSession
+    private let speechTranscriber: ObservationSpeechTranscribing
+    private let taggingService: ObservationTaggingService
+    private let standardsLoadingService: MBStandardsLoadingService
+    private let childMatcher: ObservationChildNameMatching
+    private let draftStore: ObservationCaptureDraftStore
+    private let authSession: AuthSession
+    private var activeTranscriptTask: Task<Void, Never>?
+    private var hasPrepared = false
+    private var hasLoadedStandards = false
+    private var isLoadingStandards = false
+    private var isMicPressActive = false
+    private var shouldCancelPendingStart = false
+    private var currentDraftID: UUID?
+    private var currentDraftCreatedAt: Date?
+    private(set) var standardsLoadResult: MBStandardsLoadResult?
+    private var dismissedChildMatchKeys: Set<String> = []
+    private var manuallyAssignedChildKeys: Set<String> = []
+
+    init(
+        captureSession: ObservationCaptureSession,
+        speechTranscriber: ObservationSpeechTranscribing,
+        taggingService: ObservationTaggingService,
+        standardsLoadingService: MBStandardsLoadingService,
+        childMatcher: ObservationChildNameMatching,
+        draftStore: ObservationCaptureDraftStore,
+        session: AuthSession
+    ) {
+        self.captureSession = captureSession
+        self.speechTranscriber = speechTranscriber
+        self.taggingService = taggingService
+        self.standardsLoadingService = standardsLoadingService
+        self.childMatcher = childMatcher
+        self.draftStore = draftStore
+        self.authSession = session
+    }
+
+    var className: String {
+        captureSession.className
+    }
+
+    var rosterCount: Int {
+        captureSession.rosterSnapshot.count
+    }
+
+    var rosterStudents: [ObservationRosterStudent] {
+        captureSession.rosterSnapshot
+    }
+
+    var selectedStudentKeys: Set<String> {
+        Set(matchedChildren.map(\.studentKey))
+    }
+
+    var isRecording: Bool {
+        state == .recording
+    }
+
+    var isMicControlActive: Bool {
+        isMicPressActive || state == .requestingPermission || state == .recording
+    }
+
+    var isSuggestingTags: Bool {
+        state == .suggestingTags
+    }
+
+    var isSaving: Bool {
+        state == .saving
+    }
+
+    var hasTranscript: Bool {
+        transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    var canSave: Bool {
+        hasTranscript &&
+        state != .recording &&
+        state != .requestingPermission &&
+        state != .transcribing &&
+        state != .saving
+    }
+
+    var shouldRetryStandardsLoad: Bool {
+        guard let status = standardsLoadResult?.status else {
+            return false
+        }
+
+        return status == .failed || status == .partialFailure
+    }
+
+    var errorMessage: String? {
+        guard case .failed(let error) = state else {
+            return nil
+        }
+        return error.errorDescription
+    }
+
+    func prepare() async {
+        guard hasPrepared == false else {
+            return
+        }
+
+        hasPrepared = true
+        state = .permissionUnknown
+
+        do {
+            let drafts = try await draftStore.loadDrafts(forClassID: captureSession.classID)
+            if let latestDraft = drafts.last(where: { $0.status.isRecoverableActiveDraft }) {
+                apply(draft: latestDraft)
+                statusMessage = "Recovered an in-progress local observation draft."
+                state = .draftReady
+            } else {
+                state = .ready
+            }
+        } catch {
+            statusMessage = "Local draft recovery is unavailable right now."
+            state = .ready
+        }
+
+        Task {
+            await loadStandards()
+        }
+    }
+
+    func beginMicPress() {
+        guard isMicPressActive == false, state != .saving else {
+            return
+        }
+
+        isMicPressActive = true
+        shouldCancelPendingStart = false
+        Task {
+            await startRecording()
+        }
+    }
+
+    func endMicPress() {
+        guard isMicPressActive else {
+            return
+        }
+
+        isMicPressActive = false
+        Task {
+            await stopRecording()
+        }
+    }
+
+    func updateTranscript(_ newTranscript: String) {
+        transcript = newTranscript
+        let automaticMatches = childMatcher.matchChildren(
+            in: newTranscript,
+            roster: captureSession.rosterSnapshot
+        )
+        .filter { isDismissedMatchedChild($0) == false }
+
+        let automaticMatchKeys = Set(automaticMatches.map(\.studentKey))
+        let manualMatches = captureSession.rosterSnapshot
+            .filter { manuallyAssignedChildKeys.contains($0.studentKey) }
+            .filter { automaticMatchKeys.contains($0.studentKey) == false }
+            .map(Self.matchedChild)
+
+        matchedChildren = automaticMatches + manualMatches
+
+        if newTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            tags = .empty
+            confidence = 0
+            evidenceSpans = []
+            pendingRetag = true
+        }
+    }
+
+    func cancelActiveCapture() async {
+        shouldCancelPendingStart = true
+        isMicPressActive = false
+        activeTranscriptTask?.cancel()
+        activeTranscriptTask = nil
+        await speechTranscriber.cancel()
+
+        if state == .recording || state == .transcribing || state == .requestingPermission {
+            state = hasTranscript ? .draftReady : .ready
+        }
+    }
+
+    func saveDraft() async -> Bool {
+        guard canSave else {
+            return false
+        }
+
+        state = .saving
+        statusMessage = nil
+
+        let now = Date()
+        let draft = ObservationCaptureDraft(
+            id: currentDraftID ?? UUID(),
+            classID: captureSession.classID,
+            className: captureSession.className,
+            transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
+            matchedChildren: matchedChildren,
+            tags: tags,
+            confidence: confidence,
+            evidenceSpans: evidenceSpans,
+            pendingRetag: pendingRetag,
+            dismissedChildMatchKeys: dismissedChildMatchKeys,
+            status: .savedForReview,
+            createdAt: currentDraftCreatedAt ?? now,
+            updatedAt: now
+        )
+
+        do {
+            let draftID = try await draftStore.saveDraft(draft)
+            currentDraftID = draftID
+            currentDraftCreatedAt = draft.createdAt
+            state = .saved
+            statusMessage = "Local draft saved for review."
+            return true
+        } catch {
+            state = .failed(.saveFailed(error.localizedDescription))
+            return false
+        }
+    }
+
+    func discardDraft() async {
+        shouldCancelPendingStart = true
+        if let currentDraftID {
+            try? await draftStore.deleteDraft(id: currentDraftID)
+        }
+
+        activeTranscriptTask?.cancel()
+        await speechTranscriber.cancel()
+        resetDraftState()
+        state = .ready
+        statusMessage = nil
+    }
+
+    func addMatchedChild(studentID: String) {
+        guard let student = captureSession.rosterSnapshot.first(where: { $0.id == studentID }) else {
+            return
+        }
+
+        let child = Self.matchedChild(for: student)
+        dismissedChildMatchKeys.subtract(dismissalKeys(for: child))
+        manuallyAssignedChildKeys.insert(child.studentKey)
+
+        guard matchedChildren.contains(where: { $0.studentKey == child.studentKey }) == false else {
+            return
+        }
+
+        matchedChildren.append(child)
+    }
+
+    func removeMatchedChild(id: ObservationMatchedChild.ID) {
+        if let child = matchedChildren.first(where: { $0.id == id }) {
+            dismissedChildMatchKeys.formUnion(dismissalKeys(for: child))
+            manuallyAssignedChildKeys.remove(child.studentKey)
+        } else {
+            dismissedChildMatchKeys.insert(Self.dismissalKey(prefix: "id", value: id))
+            manuallyAssignedChildKeys.remove(id)
+        }
+
+        matchedChildren.removeAll { $0.id == id }
+    }
+
+    func removeTag(category: ObservationPYPTagCategory, value: String) {
+        tags.remove(category: category, value: value)
+        evidenceSpans.removeAll { $0.category == category && $0.value == value }
+        pendingRetag = tags.isEmpty
+    }
+
+    func evidence(for category: ObservationPYPTagCategory, value: String) -> ObservationEvidenceSpan? {
+        evidenceSpans.first { $0.category == category && $0.value == value }
+    }
+
+    private func startRecording() async {
+        guard state != .recording else {
+            return
+        }
+
+        state = .requestingPermission
+        statusMessage = nil
+
+        let authorization = await speechTranscriber.requestAuthorization()
+        guard shouldCancelPendingStart == false else {
+            state = hasTranscript ? .draftReady : .ready
+            return
+        }
+
+        guard authorization == .authorized else {
+            state = authorizationFailureState(for: authorization)
+            return
+        }
+
+        do {
+            resetCaptureValuesForNewRecording()
+            let stream = try await speechTranscriber.start(locale: .current)
+            guard shouldCancelPendingStart == false else {
+                await speechTranscriber.cancel()
+                state = hasTranscript ? .draftReady : .ready
+                return
+            }
+
+            state = .recording
+
+            activeTranscriptTask = Task { [weak self] in
+                do {
+                    for try await event in stream {
+                        self?.consumeTranscriptEvent(event)
+                    }
+                } catch {
+                    self?.handleTranscriptStreamFailure(error)
+                }
+            }
+
+            if isMicPressActive == false {
+                await stopRecording()
+            }
+        } catch {
+            if shouldCancelPendingStart {
+                state = hasTranscript ? .draftReady : .ready
+            } else {
+                state = .failed(.speechUnavailable(error.localizedDescription))
+            }
+        }
+    }
+
+    private func loadStandards() async {
+        await loadStandards(forceRefresh: false)
+    }
+
+    func retryLoadStandards() async {
+        await loadStandards(forceRefresh: true)
+    }
+
+    private func loadStandards(forceRefresh: Bool) async {
+        if isLoadingStandards {
+            return
+        }
+
+        guard forceRefresh || hasLoadedStandards == false else {
+            return
+        }
+
+        isLoadingStandards = true
+        if forceRefresh {
+            hasLoadedStandards = false
+        }
+
+        defer {
+            isLoadingStandards = false
+        }
+
+        let result = await standardsLoadingService.loadStandards(
+            for: authSession,
+            selectedClass: captureSession.selectedClass
+        )
+
+        hasLoadedStandards = [MBStandardsLoadStatus.loaded, .empty].contains(result.status)
+        standardsLoadResult = result
+
+        if let errorMessage = result.errorMessage,
+           [.permissionUnknown, .ready, .draftReady].contains(state) {
+            statusMessage = errorMessage
+        }
+    }
+
+    private func stopRecording() async {
+        guard state == .recording else {
+            return
+        }
+
+        state = .transcribing
+        let finalTranscript = await speechTranscriber.stop()
+        activeTranscriptTask?.cancel()
+        activeTranscriptTask = nil
+
+        let normalizedTranscript = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedTranscript.isEmpty == false {
+            updateTranscript(normalizedTranscript)
+        }
+
+        guard hasTranscript else {
+            state = .failed(.noSpeechDetected)
+            return
+        }
+
+        await suggestTags()
+    }
+
+    private func suggestTags() async {
+        state = .suggestingTags
+        tags = .empty
+        confidence = 0
+        evidenceSpans = []
+        pendingRetag = true
+        statusMessage = nil
+
+        do {
+            for try await event in taggingService.suggestTags(
+                transcript: transcript,
+                classContext: captureSession
+            ) {
+                switch event {
+                case .suggestions(let result):
+                    tags = result.tags
+                    confidence = result.confidence
+                    evidenceSpans = result.evidenceSpans
+                    pendingRetag = result.pendingRetag
+                case .unavailable:
+                    pendingRetag = true
+                }
+            }
+
+            state = .draftReady
+        } catch {
+            pendingRetag = true
+            statusMessage = "Tagging failed. This transcript can still be saved as a local draft."
+            state = .draftReady
+        }
+    }
+
+    private func consumeTranscriptEvent(_ event: ObservationTranscriptEvent) {
+        updateTranscript(event.transcript)
+    }
+
+    private func handleTranscriptStreamFailure(_ error: Error) {
+        guard state == .recording || state == .transcribing else {
+            return
+        }
+
+        if let transcriberError = error as? ObservationSpeechTranscriberError,
+           transcriberError.isRecoverableRecordingInterruption {
+            isMicPressActive = false
+            activeTranscriptTask = nil
+            statusMessage = transcriberError.errorDescription
+            state = hasTranscript ? .draftReady : .ready
+            return
+        }
+
+        state = .failed(.speechUnavailable(error.localizedDescription))
+    }
+
+    private func authorizationFailureState(for authorization: ObservationSpeechAuthorizationStatus) -> ObservationCaptureState {
+        switch authorization {
+        case .microphoneDenied:
+            return .failed(.microphonePermissionDenied)
+        case .denied:
+            return .failed(.speechPermissionDenied)
+        case .restricted:
+            return .failed(.speechUnavailable("Speech recognition is restricted on this device."))
+        case .notDetermined, .unknown:
+            return .failed(.speechUnavailable("Speech recognition permission is unavailable right now."))
+        case .authorized:
+            return .ready
+        }
+    }
+
+    private func resetCaptureValuesForNewRecording() {
+        transcript = ""
+        matchedChildren = []
+        dismissedChildMatchKeys = []
+        manuallyAssignedChildKeys = []
+        tags = .empty
+        confidence = 0
+        evidenceSpans = []
+        pendingRetag = true
+    }
+
+    private func resetDraftState() {
+        resetCaptureValuesForNewRecording()
+        currentDraftID = nil
+        currentDraftCreatedAt = nil
+    }
+
+    private func apply(draft: ObservationCaptureDraft) {
+        currentDraftID = draft.id
+        currentDraftCreatedAt = draft.createdAt
+        transcript = draft.transcript
+        matchedChildren = draft.matchedChildren
+        dismissedChildMatchKeys = draft.dismissedChildMatchKeys
+        manuallyAssignedChildKeys = Set(draft.matchedChildren.map(\.studentKey))
+        tags = draft.tags
+        confidence = draft.confidence
+        evidenceSpans = draft.evidenceSpans
+        pendingRetag = draft.pendingRetag
+    }
+
+    private func isDismissedMatchedChild(_ child: ObservationMatchedChild) -> Bool {
+        dismissalKeys(for: child).contains { dismissedChildMatchKeys.contains($0) }
+    }
+
+    private func dismissalKeys(for child: ObservationMatchedChild) -> Set<String> {
+        [
+            Self.dismissalKey(prefix: "id", value: child.id),
+            Self.dismissalKey(prefix: "student", value: child.studentKey),
+            Self.dismissalKey(prefix: "match", value: child.matchText)
+        ]
+    }
+
+    private static func dismissalKey(prefix: String, value: String) -> String {
+        "\(prefix):\(value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased())"
+    }
+
+    private static func matchedChild(for student: ObservationRosterStudent) -> ObservationMatchedChild {
+        ObservationMatchedChild(
+            studentKey: student.studentKey,
+            displayName: student.displayName,
+            matchText: student.displayName,
+            confidence: 1
+        )
+    }
+}

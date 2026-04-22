@@ -1,0 +1,27 @@
+This is the "Today" tab of the TEACHER side of TinySteps iOS app — where early-years teachers capture voice observations in ~15 seconds. 390px wide mobile, 844pt tall, portrait. Warm cream background (#FBF6EE). Nunito Sans. Warm charcoal #3A342E, olive-brown #6E6456, pale warm grey #A89E8F. Sage #8DA67A, darker sage #6B8659, dusty rose #D99B8F, honey gold #E6B469.
+
+Top to bottom:
+
+1. iOS status bar (47pt), 9:41.
+
+2. Header (16pt top padding, 20pt H padding): LEFT: "Today" in 22pt Semi-Bold warm charcoal, plus a 13pt Regular olive-brown eyebrow above it reading "Tuesday, 14 April". RIGHT: small 36pt teacher avatar (initial "M" on dusty-rose bg).
+
+3. Subtle gentle section below header (16pt top gap, 20pt H padding): small row showing "Nursery Meadow · Caterpillars room" in 13pt Regular olive-brown.
+
+4. Record button (HERO, centered horizontally, 40pt top gap — sits prominently around ~160pt from screen top): 96pt × 96pt perfect circle with a subtle sage gradient #8DA67A (top) → #6B8659 (bottom) and a soft warm cream-brown shadow glow. Centered inside: a white Lucide `mic` icon, 32pt, 2pt stroke. Around the circle: a very subtle 1pt pulsing ring hint (just a faint sage tone 20% alpha). Below the circle (16pt gap, centered): micro-instruction "Press and hold to observe" in 13pt Regular olive-brown.
+
+5. Below the record button, a centered small text placeholder for live transcript (24pt top gap, 20pt H padding, centered, max width 320pt):
+   - In dormant state: a pale-warm-grey italic placeholder "Your words will appear here…" 16pt Regular italic.
+
+6. Chip Bloom row (32pt top gap, 20pt H padding, horizontally centered row of 4 chips wrapping): 4 skeleton PYP chips in SKELETON STATE — each 28pt tall pill, 13pt Medium warm charcoal label, sage-tinted bg at 10% alpha BUT rendered at 30% opacity with a subtle shimmer, showing in PYP canonical order left to right: "Theme: —", "Concept: —", "ATL: —", "Profile: —". A small 11pt caption above the chips in pale olive-brown: "Chips bloom when you speak".
+
+7. Divider with label: a 24pt top gap, a hairline divider with a small centered 13pt olive-brown caption "Today's moments (3)".
+
+8. Today's feed — list of 3 compact observation cards (16pt top gap, 20pt H padding, 12pt gaps, each card: ivory #FFFDF8 bg, 16pt radius, 16pt padding, warm shadow):
+   - Card A: top row 24pt avatar of child (soft photo), "Amara · 10:42" in 13pt olive-brown, then 2-line narrative excerpt "Amara was building with the blocks and telling Finn the bridge needed to be stronger..." 15pt Regular warm charcoal. 3 tiny sage chip tags.
+   - Card B: "Finn · 09:55", "Helped tidy the art corner without being asked…", 2 chips.
+   - Card C: "Rosa · 09:20", "Noticed the worm and wanted to know 'is it friends with the ant?'…", 3 chips.
+
+9. Floating pill tab bar at the bottom (83pt, 36pt radius, ivory bg, warm shadow). 3 TEACHER tabs: "Today" (Lucide `mic`, ACTIVE, sage 600), "Review" (Lucide `list-checks`, inactive, pale warm grey 400), "Class" (Lucide `users`, inactive, pale warm grey 400). 11pt Medium labels, 4pt gap. 34pt safe area below.
+
+Emotional tone: quiet focus, like holding a notebook in the classroom. The hero record button is the single clear affordance — generous, warm, inviting. No progression visual on this screen (by design — the path lives on the parent side). Absolutely no badges or gamification icons. Clean, spacious cream backdrop.

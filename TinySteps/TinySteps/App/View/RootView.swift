@@ -29,7 +29,10 @@ struct RootView: View {
                     session: session,
                     dependencies: dependencies,
                     onSignOut: {
-                        flowModel.signOut()
+                        Task {
+                            await dependencies.standardsLoadingService.clearCache()
+                            flowModel.signOut()
+                        }
                     }
                 )
                 .id(session.signedInScopeID)

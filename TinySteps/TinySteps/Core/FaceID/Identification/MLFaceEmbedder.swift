@@ -45,47 +45,26 @@ struct MLFaceEmbedder {
             try self.model.prediction(from: input)
         }
 
-        let outputFeatureName = Self.outputFeatureName(from: model)
-        let outputFeature = outputFeatureName.flatMap({ output.featureValue(for: $0) }) ??
-            output.featureValue(for: output.featureNames.first ?? "")
+        let outputFeature = Self.outputFeatureValue(
+            from: model,
+            output: output
+        )
 
         guard let outputFeature else {
             throw Error.missingOutput
         }
 
-        guard let multiArray = outputFeature.multiArrayValue else {
+        let vectorValues = Self.extractFloatValues(from: outputFeature)
+        guard vectorValues.isEmpty == false else {
             throw Error.outputTypeMismatch
         }
 
-        var vector: [Float] = []
-        vector.reserveCapacity(multiArray.count)
+        let count = vectorValues.count
+        var vector = vectorValues
         var magnitude: Float = 0
-        let count = multiArray.count
-
-        switch multiArray.dataType {
-        case .double:
-            let pointer = multiArray.dataPointer.bindMemory(to: Double.self, capacity: count)
-            for index in 0..<count {
-                let value = Float(pointer[index])
-                vector.append(value)
-                magnitude += value * value
-            }
-        case .float32:
-            let pointer = multiArray.dataPointer.bindMemory(to: Float.self, capacity: count)
-            for index in 0..<count {
-                let value = pointer[index]
-                vector.append(value)
-                magnitude += value * value
-            }
-        case .float16:
-            let pointer = multiArray.dataPointer.bindMemory(to: Float16.self, capacity: count)
-            for index in 0..<count {
-                let value = Float(pointer[index])
-                vector.append(value)
-                magnitude += value * value
-            }
-        default:
-            throw Error.outputTypeMismatch
+        for index in 0..<count {
+            let value = vector[index]
+            magnitude += value * value
         }
         let scale = magnitude > 0 ? (1 / sqrtf(magnitude)) : 0
         var normalized = vector
@@ -131,6 +110,49 @@ struct MLFaceEmbedder {
     }
 
     private static func outputFeatureName(from model: MLModel) -> String? {
-        model.modelDescription.outputDescriptionsByName.keys.first
+        if let output = model.modelDescription.outputDescriptionsByName["output"] {
+            return "output"
+        }
+        if model.modelDescription.outputDescriptionsByName["output1"] != nil {
+            return "output1"
+        }
+        if let multiArrayOutput = model.modelDescription.outputDescriptionsByName.first(where: {
+            $0.value.multiArrayConstraint != nil
+        }) {
+            return multiArrayOutput.key
+        }
+        return model.modelDescription.outputDescriptionsByName.keys.first
+    }
+
+    private static func outputFeatureValue(
+        from model: MLModel,
+        output: MLFeatureProvider
+    ) -> MLFeatureValue? {
+        if let outputName = outputFeatureName(from: model),
+           let feature = output.featureValue(for: outputName),
+           feature.multiArrayValue != nil {
+            return feature
+        }
+
+        for name in output.featureNames {
+            if let feature = output.featureValue(for: name), feature.multiArrayValue != nil {
+                return feature
+            }
+        }
+
+        return nil
+    }
+
+    private static func extractFloatValues(from outputFeature: MLFeatureValue) -> [Float] {
+        guard let multiArray = outputFeature.multiArrayValue else {
+            return []
+        }
+
+        var values = [Float]()
+        values.reserveCapacity(multiArray.count)
+        for index in 0..<multiArray.count {
+            values.append(multiArray[index].floatValue)
+        }
+        return values
     }
 }

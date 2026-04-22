@@ -35,6 +35,7 @@ final class FaceCaptureViewModel: ObservableObject {
     private let draftStore: FaceCaptureDraftStore
     private let camera = FaceCaptureCameraController()
     private let identificationService: FaceIdentificationService?
+    private var cameraCancellables: Set<AnyCancellable> = []
 
     init(
         session: AuthSession,
@@ -51,10 +52,31 @@ final class FaceCaptureViewModel: ObservableObject {
         self.faceEnrollmentStore = faceEnrollmentStore
         self.draftStore = draftStore
         self.identificationService = try? FaceIdentificationService()
+        camera.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cameraCancellables)
     }
 
     var cameraPreviewSession: AVCaptureSession {
         camera.previewSession
+    }
+
+    var cameraDevice: AVCaptureDevice? {
+        camera.currentDevice
+    }
+
+    var isFrontCamera: Bool {
+        camera.currentPosition == .front
+    }
+
+    var isLightingGood: Bool? {
+        camera.isLightingGood
+    }
+
+    var canSwitchCamera: Bool {
+        isCameraReady && state == .ready
     }
 
     var hasMatches: Bool {
@@ -97,7 +119,15 @@ final class FaceCaptureViewModel: ObservableObject {
 
     func stop() {
         camera.stop()
+        isCameraReady = false
         if case .capturing = state { return }
+    }
+
+    func toggleCamera() {
+        guard canSwitchCamera else {
+            return
+        }
+        camera.toggleCamera()
     }
 
     func capturePhoto() {
@@ -133,12 +163,16 @@ final class FaceCaptureViewModel: ObservableObject {
     }
 
     func retake() {
-        state = .ready
+        state = .requestingPermission
         selectedFace = nil
         capturedImage = nil
         detectedFaces = []
         errorMessage = nil
-        Task { await camera.start() }
+        Task {
+            await camera.start()
+            isCameraReady = camera.isReady
+            state = camera.isReady ? .ready : .failed(camera.errorMessage ?? "Camera unavailable")
+        }
     }
 
     func assignFace(_ face: FaceCaptureFace) {

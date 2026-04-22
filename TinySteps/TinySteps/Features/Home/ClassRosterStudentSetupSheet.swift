@@ -1719,19 +1719,25 @@ struct ClassRosterStudentSetupSheet: View {
             let detectedRoll = faceObservation.roll?.doubleValue
             let detectedPitch = faceObservation.pitch?.doubleValue
             let fallbackAngles = estimatePoseAngles(from: landmarks)
-            let yawDegrees = detectedYaw.map {
-                abs(($0 * 180 / .pi) * (currentPosition == .front ? -1 : 1))
-            } ?? fallbackAngles.yaw
-            let pitchDegrees = detectedPitch
-                .map(normalizeHeadAngleDegrees)
+            let rawYawDegrees = rawAngleDegrees(detectedYaw)
+            let rawPitchDegrees = rawAngleDegrees(detectedPitch)
+            let rawRollDegrees = rawAngleDegrees(detectedRoll)
+            let correctedYawDegrees = rawYawDegrees.map {
+                normalizeYawDegrees($0, for: currentPosition)
+            }
+            let correctedPitchDegrees = detectedPitch.map(normalizeHeadAngleDegrees)
+            let correctedRollDegrees = rawRollDegrees.map {
+                normalizeRollDegrees($0, for: currentPosition)
+            }
+            let yawDegrees = correctedYawDegrees ?? fallbackAngles.yaw
+            let pitchDegrees = correctedPitchDegrees
                 .flatMap { detected in
                     guard let fallback = fallbackAngles.pitch else {
                         return detected
                     }
                     return min(detected, fallback)
                 } ?? fallbackAngles.pitch
-            let rollDegrees = detectedRoll
-                .map(normalizeHeadAngleDegrees)
+            let rollDegrees = correctedRollDegrees
                 .flatMap { detected in
                     guard let fallback = fallbackAngles.roll else {
                         return detected
@@ -1799,7 +1805,9 @@ struct ClassRosterStudentSetupSheet: View {
 
             var lines: [String] = [
                 "Pose debug step: \(currentPoseStep.label)",
-                "Angles: yaw=\(debugFormat(yawAngle))°, pitch=\(debugFormat(pitchAngle))°, roll=\(debugFormat(rollAngle))°",
+                "Camera: \(currentPosition == .front ? "front" : "back")",
+                "Corrected: yaw=\(debugFormat(yawAngle))°, pitch=\(debugFormat(pitchAngle))°, roll=\(debugFormat(rollAngle))°",
+                "Raw: yaw=\(debugFormat(rawYawDegrees))°, pitch=\(debugFormat(rawPitchDegrees))°, roll=\(debugFormat(rawRollDegrees))°",
                 "Box: x=\(debugFormat(faceBox.midX)) y=\(debugFormat(faceBox.midY)) w=\(debugFormat(faceBox.width)) h=\(debugFormat(faceBox.height))",
                 "Area: \(debugFormat(faceArea))"
             ]
@@ -1861,6 +1869,45 @@ struct ClassRosterStudentSetupSheet: View {
         private func normalizeHeadAngleDegrees(_ radians: Double) -> Double {
             let degrees = abs(radians * 180 / .pi)
             return degrees > 90 ? 180 - degrees : degrees
+        }
+
+        private func rawAngleDegrees(_ radians: Double?) -> Double? {
+            radians.map { $0 * 180 / .pi }
+        }
+
+        private func normalizeYawDegrees(
+            _ rawDegrees: Double,
+            for position: AVCaptureDevice.Position
+        ) -> Double {
+            let cameraAdjustedDegrees = rawDegrees * (position == .front ? -1 : 1)
+            return min(normalizedAbsoluteHeadAngleDegrees(cameraAdjustedDegrees), 90)
+        }
+
+        private func normalizeRollDegrees(
+            _ rawDegrees: Double,
+            for position: AVCaptureDevice.Position
+        ) -> Double {
+            guard position == .back else {
+                return normalizedAbsoluteHeadAngleDegrees(rawDegrees)
+            }
+
+            let offsetCandidates = [
+                normalizedAbsoluteHeadAngleDegrees(rawDegrees - 90),
+                normalizedAbsoluteHeadAngleDegrees(rawDegrees + 90)
+            ]
+            return offsetCandidates.min() ?? normalizedAbsoluteHeadAngleDegrees(rawDegrees)
+        }
+
+        private func normalizedAbsoluteHeadAngleDegrees(_ degrees: Double) -> Double {
+            var normalized = degrees.truncatingRemainder(dividingBy: 360)
+            if normalized > 180 {
+                normalized -= 360
+            } else if normalized < -180 {
+                normalized += 360
+            }
+
+            let absolute = abs(normalized)
+            return absolute > 90 ? 180 - absolute : absolute
         }
 
         private func estimateYaw(from landmarks: VNFaceLandmarks2D) -> Double? {

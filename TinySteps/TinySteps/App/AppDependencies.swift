@@ -18,6 +18,11 @@ final class AppDependencies {
     let portfolioService: PortfolioService
     let faceEnrollmentStore: FaceEnrollmentStore
     let faceCaptureDraftStore: FaceCaptureDraftStore
+    let observationDraftStore: ObservationCaptureDraftStore
+    let observationTaggingService: ObservationTaggingService
+    let standardsLoadingService: MBStandardsLoadingService
+    let observationSpeechTranscriber: ObservationSpeechTranscribing
+    let observationChildMatcher: ObservationChildNameMatching
     let childSelectionStore: ChildSelectionStore
     let classSelectionStore: ClassSelectionStore
 
@@ -31,6 +36,14 @@ final class AppDependencies {
         portfolioService: PortfolioService,
         faceEnrollmentStore: FaceEnrollmentStore,
         faceCaptureDraftStore: FaceCaptureDraftStore,
+        observationDraftStore: ObservationCaptureDraftStore = FileObservationCaptureDraftStore(),
+        observationTaggingService: ObservationTaggingService = DisabledObservationTaggingService(),
+        standardsLoadingService: MBStandardsLoadingService = MBStandardsLoadingServiceImpl(
+            credentialsProvider: DemoMBAPICredentialsProvider(),
+            client: MBLiveClient()
+        ),
+        observationSpeechTranscriber: ObservationSpeechTranscribing = AppleObservationSpeechTranscriber(),
+        observationChildMatcher: ObservationChildNameMatching = LocalObservationChildNameMatcher(),
         childSelectionStore: ChildSelectionStore,
         classSelectionStore: ClassSelectionStore
     ) {
@@ -43,6 +56,11 @@ final class AppDependencies {
         self.portfolioService = portfolioService
         self.faceEnrollmentStore = faceEnrollmentStore
         self.faceCaptureDraftStore = faceCaptureDraftStore
+        self.observationDraftStore = observationDraftStore
+        self.observationTaggingService = observationTaggingService
+        self.standardsLoadingService = standardsLoadingService
+        self.observationSpeechTranscriber = observationSpeechTranscriber
+        self.observationChildMatcher = observationChildMatcher
         self.childSelectionStore = childSelectionStore
         self.classSelectionStore = classSelectionStore
     }
@@ -63,6 +81,7 @@ final class AppDependencies {
         )
 
         let faceCaptureDraftStore: FaceCaptureDraftStore = InMemoryFaceCaptureDraftStore()
+        let observationDraftStore: ObservationCaptureDraftStore = FileObservationCaptureDraftStore()
 
         return AppDependencies(
             authController: auth.authController,
@@ -74,6 +93,11 @@ final class AppDependencies {
             portfolioService: features.portfolioService,
             faceEnrollmentStore: features.faceEnrollmentStore,
             faceCaptureDraftStore: faceCaptureDraftStore,
+            observationDraftStore: observationDraftStore,
+            observationTaggingService: DisabledObservationTaggingService(),
+            standardsLoadingService: features.standardsLoadingService,
+            observationSpeechTranscriber: AppleObservationSpeechTranscriber(),
+            observationChildMatcher: LocalObservationChildNameMatcher(),
             childSelectionStore: session.childSelectionStore,
             classSelectionStore: session.classSelectionStore
         )

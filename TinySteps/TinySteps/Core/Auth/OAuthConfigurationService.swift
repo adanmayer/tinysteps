@@ -103,7 +103,7 @@ final class LiveOAuthConfigurationService: OAuthConfigurationService {
         signInHost: String,
         authority: URL
     ) throws -> OAuthConfiguration {
-        guard let loginHost = URL(string: signInHost) else {
+        guard let loginHost = environment.oauth.signInHostOverride ?? URL(string: signInHost) else {
             throw AuthError.configurationUnavailable
         }
 

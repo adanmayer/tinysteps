@@ -11,6 +11,11 @@ struct SignedInRootView: View {
     private let classesService: ClassesService
     private let faceEnrollmentStore: FaceEnrollmentStore
     private let faceCaptureDraftStore: FaceCaptureDraftStore
+    private let observationDraftStore: ObservationCaptureDraftStore
+    private let observationTaggingService: ObservationTaggingService
+    private let standardsLoadingService: MBStandardsLoadingService
+    private let observationSpeechTranscriber: ObservationSpeechTranscribing
+    private let observationChildMatcher: ObservationChildNameMatching
     private let onSignOut: () -> Void
 
     init(
@@ -32,6 +37,11 @@ struct SignedInRootView: View {
         self.classesService = dependencies.classesService
         self.faceEnrollmentStore = dependencies.faceEnrollmentStore
         self.faceCaptureDraftStore = dependencies.faceCaptureDraftStore
+        self.observationDraftStore = dependencies.observationDraftStore
+        self.observationTaggingService = dependencies.observationTaggingService
+        self.standardsLoadingService = dependencies.standardsLoadingService
+        self.observationSpeechTranscriber = dependencies.observationSpeechTranscriber
+        self.observationChildMatcher = dependencies.observationChildMatcher
         self.onSignOut = onSignOut
     }
 
@@ -71,6 +81,11 @@ struct SignedInRootView: View {
                             classesService: classesService,
                             faceEnrollmentStore: faceEnrollmentStore,
                             faceCaptureDraftStore: faceCaptureDraftStore,
+                            observationDraftStore: observationDraftStore,
+                            observationTaggingService: observationTaggingService,
+                            standardsLoadingService: standardsLoadingService,
+                            observationSpeechTranscriber: observationSpeechTranscriber,
+                            observationChildMatcher: observationChildMatcher,
                             onShowClassSwitcher: { isShowingClassSwitcher = true },
                             onSignOut: { isShowingSignOutConfirmation = true }
                         )

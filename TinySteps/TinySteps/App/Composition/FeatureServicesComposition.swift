@@ -9,6 +9,7 @@ struct FeatureServicesComposition {
     let filesService: FilesService
     let parentAssociationService: ParentAssociationService
     let portfolioService: PortfolioService
+    let standardsLoadingService: MBStandardsLoadingService
     let faceEnrollmentStore: FaceEnrollmentStore
     private static let demoDataLogger = Logger(
         subsystem: "co.Faria.MobileManageBac",
@@ -72,6 +73,10 @@ struct FeatureServicesComposition {
                 client: client
             ),
             portfolioService: MBPortfolioService(
+                credentialsProvider: effectiveCredentialsProvider,
+                client: client
+            ),
+            standardsLoadingService: MBStandardsLoadingServiceImpl(
                 credentialsProvider: effectiveCredentialsProvider,
                 client: client
             ),

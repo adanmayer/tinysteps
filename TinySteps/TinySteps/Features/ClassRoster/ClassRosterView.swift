@@ -10,6 +10,7 @@ struct ClassRosterView: View {
     let onShowClassSwitcher: () -> Void
     let onShowClassSettings: () -> Void
     let onCaptureImage: ([ClassRosterStudent]) -> Void
+    let onCaptureObservation: (ObservationCaptureLaunchContext) -> Void
     let canShowClassSwitcher: Bool
     let onTapStudent: (ClassRosterStudent) -> Void
     let classesService: ClassesService
@@ -29,6 +30,7 @@ struct ClassRosterView: View {
         onShowClassSwitcher: @escaping () -> Void,
         onShowClassSettings: @escaping () -> Void,
         onCaptureImage: @escaping ([ClassRosterStudent]) -> Void,
+        onCaptureObservation: @escaping (ObservationCaptureLaunchContext) -> Void,
         onTapStudent: @escaping (ClassRosterStudent) -> Void
     ) {
         self.session = session
@@ -42,6 +44,7 @@ struct ClassRosterView: View {
         self.onShowClassSwitcher = onShowClassSwitcher
         self.onShowClassSettings = onShowClassSettings
         self.onCaptureImage = onCaptureImage
+        self.onCaptureObservation = onCaptureObservation
         self.onTapStudent = onTapStudent
         _model = State(
             initialValue: ClassRosterModel(
@@ -184,6 +187,13 @@ struct ClassRosterView: View {
                         onCaptureImage(model.students)
                     }
                     .disabled(classContext == .allClasses || model.students.isEmpty || model.isLoading)
+
+                    Button("Capture observation") {
+                        if let observationLaunchContext {
+                            onCaptureObservation(observationLaunchContext)
+                        }
+                    }
+                    .disabled(observationLaunchContext == nil || model.isLoading)
 
                     Button("Class settings", action: onShowClassSettings)
                 } label: {
@@ -332,6 +342,24 @@ struct ClassRosterView: View {
             return selectedContextTitle
         }
         return "Class"
+    }
+
+    private var observationLaunchContext: ObservationCaptureLaunchContext? {
+        guard case .schoolClass(let classID) = classContext, let selectedClass, selectedClass.id == classID else {
+            return nil
+        }
+
+        let className = selectedContextTitle.isEmpty ? selectedClass.displayName : selectedContextTitle
+        guard className.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+
+        return ObservationCaptureLaunchContext(
+            classID: classID,
+            className: className,
+            selectedClass: selectedClass,
+            rosterSnapshot: model.students.map(ObservationRosterStudent.init)
+        )
     }
 }
 
