@@ -17,6 +17,7 @@ struct ClassRosterView: View {
     let faceEnrollmentStore: FaceEnrollmentStore
 
     @State private var model: ClassRosterModel
+    @State private var isShowingClassActions = false
 
     init(
         session: AuthSession,
@@ -182,20 +183,8 @@ struct ClassRosterView: View {
 
                 Spacer()
 
-                Menu {
-                    Button("Capture image") {
-                        onCaptureImage(model.students)
-                    }
-                    .disabled(classContext == .allClasses || model.students.isEmpty || model.isLoading)
-
-                    Button("Capture observation") {
-                        if let observationLaunchContext {
-                            onCaptureObservation(observationLaunchContext)
-                        }
-                    }
-                    .disabled(observationLaunchContext == nil || model.isLoading)
-
-                    Button("Class settings", action: onShowClassSettings)
+                Button {
+                    isShowingClassActions = true
                 } label: {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16))
@@ -203,6 +192,23 @@ struct ClassRosterView: View {
                         .frame(width: 34, height: 34)
                         .background(Color(hex: "#8DA67A"))
                         .clipShape(Circle())
+                }
+                .confirmationDialog("Class options", isPresented: $isShowingClassActions, titleVisibility: .visible) {
+                    if classContext != .allClasses,
+                       model.students.isEmpty == false,
+                       model.isLoading == false {
+                        Button("Capture image") {
+                            onCaptureImage(model.students)
+                        }
+                    }
+
+                    if let observationLaunchContext, model.isLoading == false {
+                        Button("Capture observation") {
+                            onCaptureObservation(observationLaunchContext)
+                        }
+                    }
+
+                    Button("Class settings", action: onShowClassSettings)
                 }
             }
             .padding(.horizontal, 24)

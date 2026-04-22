@@ -367,7 +367,7 @@ final class ObservationCaptureViewModel {
             selectedClass: captureSession.selectedClass
         )
 
-        hasLoadedStandards = [MBStandardsLoadStatus.loaded, .empty].contains(result.status)
+        hasLoadedStandards = result.status != .failed
         standardsLoadResult = result
 
         if let errorMessage = result.errorMessage,
