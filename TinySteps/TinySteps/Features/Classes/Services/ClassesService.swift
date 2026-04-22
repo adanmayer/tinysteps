@@ -16,6 +16,7 @@ protocol ClassesService {
 struct MBClassesService: ClassesService {
     private let credentialsProvider: MBAPICredentialsProvider
     private let client: any MBClient
+    private let classPageSize = 100
 
     init(
         credentialsProvider: MBAPICredentialsProvider,
@@ -27,9 +28,29 @@ struct MBClassesService: ClassesService {
 
     func loadClasses(for session: AuthSession, childContext: ChildContext) async throws -> [MBClass] {
         let credentials = try credentialsProvider.credentials(for: session)
-        return try await client.listClasses(
-            in: credentials.sessionContext(childID: childContext.apiChildID)
-        )
+        var classes: [MBClass] = []
+        var page = 1
+
+        while true {
+            var query: [String: String] = [
+                "page": "\(page)",
+                "per_page": "\(classPageSize)"
+            ]
+
+            let pageClasses = try await client.listClasses(
+                in: credentials.sessionContext(childID: childContext.apiChildID),
+                query: query
+            )
+            classes.append(contentsOf: pageClasses)
+
+            guard pageClasses.count == classPageSize else {
+                break
+            }
+
+            page += 1
+        }
+
+        return classes
     }
 
     func loadClassTasks(

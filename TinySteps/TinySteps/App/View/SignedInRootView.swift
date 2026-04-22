@@ -8,10 +8,12 @@ struct SignedInRootView: View {
     @State private var isShowingSignOutConfirmation = false
 
     private let parentAssociationService: ParentAssociationService
+    private let portfolioService: PortfolioService
     private let classesService: ClassesService
     private let faceEnrollmentStore: FaceEnrollmentStore
     private let faceCaptureDraftStore: FaceCaptureDraftStore
     private let observationDraftStore: ObservationCaptureDraftStore
+    private let observationDraftPublisher: ObservationDraftPublishing
     private let observationTaggingService: ObservationTaggingService
     private let standardsLoadingService: MBStandardsLoadingService
     private let observationSpeechTranscriber: ObservationSpeechTranscribing
@@ -27,6 +29,7 @@ struct SignedInRootView: View {
             initialValue: SignedInSessionModel(
                 session: session,
                 authController: dependencies.authController,
+                accountService: dependencies.accountService,
                 childrenService: dependencies.childrenService,
                 classesService: dependencies.classesService,
                 childSelectionStore: dependencies.childSelectionStore,
@@ -34,10 +37,12 @@ struct SignedInRootView: View {
             )
         )
         self.parentAssociationService = dependencies.parentAssociationService
+        self.portfolioService = dependencies.portfolioService
         self.classesService = dependencies.classesService
         self.faceEnrollmentStore = dependencies.faceEnrollmentStore
         self.faceCaptureDraftStore = dependencies.faceCaptureDraftStore
         self.observationDraftStore = dependencies.observationDraftStore
+        self.observationDraftPublisher = dependencies.observationDraftPublisher
         self.observationTaggingService = dependencies.observationTaggingService
         self.standardsLoadingService = dependencies.standardsLoadingService
         self.observationSpeechTranscriber = dependencies.observationSpeechTranscriber
@@ -52,11 +57,17 @@ struct SignedInRootView: View {
                     ProgressView(loadingLabel)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let errorMessage = sessionModel.errorMessage {
-                    ContentUnavailableView(
-                        emptyTitle,
-                        systemImage: "person.2.slash",
-                        description: Text(errorMessage)
-                    )
+                    VStack(spacing: 16) {
+                        ContentUnavailableView(
+                            emptyTitle,
+                            systemImage: "person.2.slash",
+                            description: Text(errorMessage)
+                        )
+
+                        Button("Log Out", role: .destructive) {
+                            isShowingSignOutConfirmation = true
+                        }
+                    }
                 } else {
                     switch sessionModel.resolvedRole ?? .parent {
                     case .parent:
@@ -66,11 +77,14 @@ struct SignedInRootView: View {
                             selectedContextTitle: sessionModel.selectedChildTitle,
                             selectedContextSubtitle: sessionModel.selectedChildSubtitle,
                             canShowChildSwitcher: sessionModel.canShowChildSwitcher,
+                            availableChildren: sessionModel.availableChildren,
+                            portfolioService: portfolioService,
+                            classesService: classesService,
                             onShowChildSwitcher: { isShowingChildSwitcher = true },
                             onSignOut: { isShowingSignOutConfirmation = true },
                             parentAssociationService: parentAssociationService
                         )
-                    case .teacher, .student:
+                    case .teacher, .advisor, .student:
                         TeacherHomeView(
                             session: sessionModel.session,
                             classContext: sessionModel.selectedClassContext,
@@ -79,14 +93,18 @@ struct SignedInRootView: View {
                             selectedContextSubtitle: sessionModel.selectedClassSubtitle,
                             canShowClassSwitcher: sessionModel.canShowClassSwitcher,
                             classesService: classesService,
+                            portfolioService: portfolioService,
                             faceEnrollmentStore: faceEnrollmentStore,
                             faceCaptureDraftStore: faceCaptureDraftStore,
                             observationDraftStore: observationDraftStore,
+                            observationDraftPublisher: observationDraftPublisher,
                             observationTaggingService: observationTaggingService,
                             standardsLoadingService: standardsLoadingService,
                             observationSpeechTranscriber: observationSpeechTranscriber,
                             observationChildMatcher: observationChildMatcher,
-                            onShowClassSwitcher: { isShowingClassSwitcher = true },
+                            onShowClassSwitcher: {
+                                isShowingClassSwitcher = true
+                            },
                             onSignOut: { isShowingSignOutConfirmation = true }
                         )
                     }
@@ -133,7 +151,7 @@ struct SignedInRootView: View {
 
     private var loadingLabel: String {
         switch sessionModel.resolvedRole {
-        case .teacher, .student:
+        case .teacher, .advisor, .student:
             return "Loading classes…"
         case .parent, .none:
             return "Loading children…"
@@ -142,7 +160,7 @@ struct SignedInRootView: View {
 
     private var emptyTitle: String {
         switch sessionModel.resolvedRole {
-        case .teacher, .student:
+        case .teacher, .advisor, .student:
             return "Unable to load classes"
         case .parent, .none:
             return "Unable to load children"
@@ -151,7 +169,7 @@ struct SignedInRootView: View {
 
     private var showsRootNavigationChrome: Bool {
         switch sessionModel.resolvedRole {
-        case .teacher, .student:
+        case .teacher, .advisor, .student:
             return false
         case .parent, .none:
             return true

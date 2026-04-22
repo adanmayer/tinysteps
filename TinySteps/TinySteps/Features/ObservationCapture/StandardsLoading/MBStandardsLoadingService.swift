@@ -132,29 +132,12 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                     unitFailures.append(themeError)
                 }
 
-                if themes.themesByID.isEmpty == false {
-                    references = references.map { reference in
-                        guard reference.kind == .pypTheme else {
-                            return reference
-                        }
+                references = references.map { reference in
+                    guard reference.kind == .pypTheme else {
+                        return reference
+                    }
 
-                        guard let resolvedTheme = themes.themesByID[reference.sourceID] else {
-                            return MBStandardReference(
-                                kind: .pypTheme,
-                                classID: reference.classID,
-                                unitID: reference.unitID,
-                                unitTitle: reference.unitTitle,
-                                programCode: reference.programCode,
-                                sourceID: reference.sourceID,
-                                code: reference.code,
-                                title: unresolvedThemeTitle(reference.sourceID),
-                                detail: nil,
-                                isUnresolvedTheme: true,
-                                displayHashtag: reference.displayHashtag,
-                                stableIdentity: reference.stableIdentity
-                            )
-                        }
-
+                    guard let resolvedTheme = themes.themesByID[reference.sourceID] else {
                         return MBStandardReference(
                             kind: .pypTheme,
                             classID: reference.classID,
@@ -162,14 +145,29 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                             unitTitle: reference.unitTitle,
                             programCode: reference.programCode,
                             sourceID: reference.sourceID,
-                            code: resolvedTheme.name,
-                            title: resolvedTheme.name,
-                            detail: resolvedTheme.description,
-                            isUnresolvedTheme: false,
+                            code: reference.code,
+                            title: unresolvedThemeTitle(reference.sourceID),
+                            detail: nil,
+                            isUnresolvedTheme: true,
                             displayHashtag: reference.displayHashtag,
                             stableIdentity: reference.stableIdentity
                         )
                     }
+
+                    return MBStandardReference(
+                        kind: .pypTheme,
+                        classID: reference.classID,
+                        unitID: reference.unitID,
+                        unitTitle: reference.unitTitle,
+                        programCode: reference.programCode,
+                        sourceID: reference.sourceID,
+                        code: resolvedTheme.name,
+                        title: resolvedTheme.name,
+                        detail: resolvedTheme.description,
+                        isUnresolvedTheme: false,
+                        displayHashtag: reference.displayHashtag,
+                        stableIdentity: reference.stableIdentity
+                    )
                 }
 
             }
@@ -379,10 +377,22 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
     private func loadPYPThemes(for context: MBSessionContext) async -> PYPThemesLoadResult {
         do {
             let themes = try await client.loadSchoolThemes(in: context)
+            var themesByID: [String: MBTRTheme] = [:]
+            for theme in themes {
+                themesByID[theme.id] = theme
+                for description in theme.descriptions where themesByID[description.id] == nil {
+                    themesByID[description.id] = MBTRTheme(
+                        id: description.id,
+                        name: theme.name,
+                        description: description.name,
+                        order: theme.order,
+                        descriptions: [description]
+                    )
+                }
+            }
+
             return PYPThemesLoadResult(
-                themesByID: Dictionary(uniqueKeysWithValues: themes.map { theme in
-                    (theme.id, theme)
-                }),
+                themesByID: themesByID,
                 error: nil
             )
         } catch {

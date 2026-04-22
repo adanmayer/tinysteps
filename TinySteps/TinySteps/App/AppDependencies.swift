@@ -19,6 +19,7 @@ final class AppDependencies {
     let faceEnrollmentStore: FaceEnrollmentStore
     let faceCaptureDraftStore: FaceCaptureDraftStore
     let observationDraftStore: ObservationCaptureDraftStore
+    let observationDraftPublisher: ObservationDraftPublishing
     let observationTaggingService: ObservationTaggingService
     let standardsLoadingService: MBStandardsLoadingService
     let observationSpeechTranscriber: ObservationSpeechTranscribing
@@ -37,6 +38,7 @@ final class AppDependencies {
         faceEnrollmentStore: FaceEnrollmentStore,
         faceCaptureDraftStore: FaceCaptureDraftStore,
         observationDraftStore: ObservationCaptureDraftStore = FileObservationCaptureDraftStore(),
+        observationDraftPublisher: ObservationDraftPublishing,
         observationTaggingService: ObservationTaggingService = DisabledObservationTaggingService(),
         standardsLoadingService: MBStandardsLoadingService = MBStandardsLoadingServiceImpl(
             credentialsProvider: DemoMBAPICredentialsProvider(),
@@ -57,6 +59,7 @@ final class AppDependencies {
         self.faceEnrollmentStore = faceEnrollmentStore
         self.faceCaptureDraftStore = faceCaptureDraftStore
         self.observationDraftStore = observationDraftStore
+        self.observationDraftPublisher = observationDraftPublisher
         self.observationTaggingService = observationTaggingService
         self.standardsLoadingService = standardsLoadingService
         self.observationSpeechTranscriber = observationSpeechTranscriber
@@ -94,6 +97,7 @@ final class AppDependencies {
             faceEnrollmentStore: features.faceEnrollmentStore,
             faceCaptureDraftStore: faceCaptureDraftStore,
             observationDraftStore: observationDraftStore,
+            observationDraftPublisher: UnavailableObservationDraftPublisher(),
             observationTaggingService: DisabledObservationTaggingService(),
             standardsLoadingService: features.standardsLoadingService,
             observationSpeechTranscriber: AppleObservationSpeechTranscriber(),

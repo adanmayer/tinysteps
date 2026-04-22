@@ -11,6 +11,9 @@ struct ParentHomeView: View {
     let selectedContextTitle: String
     let selectedContextSubtitle: String
     let canShowChildSwitcher: Bool
+    let availableChildren: [MBChild]
+    let portfolioService: PortfolioService
+    let classesService: ClassesService
     let onShowChildSwitcher: () -> Void
     let onSignOut: () -> Void
     let parentAssociationService: ParentAssociationService
@@ -21,6 +24,9 @@ struct ParentHomeView: View {
         selectedContextTitle: String,
         selectedContextSubtitle: String,
         canShowChildSwitcher: Bool,
+        availableChildren: [MBChild],
+        portfolioService: PortfolioService,
+        classesService: ClassesService,
         onShowChildSwitcher: @escaping () -> Void,
         onSignOut: @escaping () -> Void,
         parentAssociationService: ParentAssociationService
@@ -30,6 +36,9 @@ struct ParentHomeView: View {
         self.selectedContextTitle = selectedContextTitle
         self.selectedContextSubtitle = selectedContextSubtitle
         self.canShowChildSwitcher = canShowChildSwitcher
+        self.availableChildren = availableChildren
+        self.portfolioService = portfolioService
+        self.classesService = classesService
         self.onShowChildSwitcher = onShowChildSwitcher
         self.onSignOut = onSignOut
         self.parentAssociationService = parentAssociationService
@@ -42,68 +51,17 @@ struct ParentHomeView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Signed in to \(session.schoolHost.displayName)")
-                .foregroundStyle(.secondary)
-
-            if let accountIdentifier = session.accountIdentifier {
-                Text(accountIdentifier)
-                    .font(.headline)
-            }
-
-            Button(action: onShowChildSwitcher) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(selectedContextTitle)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-
-                        Text(selectedContextSubtitle)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    if canShowChildSwitcher {
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-            }
-            .buttonStyle(.plain)
-            .disabled(!canShowChildSwitcher)
-            .accessibilityLabel("Switch child")
-
-            attendanceExcusalButton
-
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Notices placeholder", systemImage: "bell.badge")
-                Label("Schedule placeholder", systemImage: "calendar")
-                Label("Messages placeholder", systemImage: "message")
-            }
-            .errorMessage(
-                attendanceExcusalModel.errorMessage,
-                font: .caption,
-                color: .orange,
-                horizontalPadding: 0,
-                topPadding: 8
-            )
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-
-            Button("Sign Out", role: .destructive, action: onSignOut)
-                .buttonStyle(.bordered)
-
-            Spacer()
-        }
+        PortfolioTimelineView(
+            session: session,
+            childContext: childContext,
+            selectedScopeTitle: selectedContextTitle,
+            selectedScopeSubtitle: selectedContextSubtitle,
+            canShowScopeSwitcher: canShowChildSwitcher,
+            availableChildren: availableChildren,
+            portfolioService: portfolioService,
+            classesService: classesService,
+            onShowScopeSwitcher: onShowChildSwitcher
+        )
         .task {
             await attendanceExcusalModel.loadIfNeeded()
         }
@@ -150,14 +108,15 @@ struct ParentHomeView: View {
                 attendanceExcusalModel.prepareForNewSubmission()
             }
         }
-        .padding(24)
+        .safeAreaInset(edge: .bottom) {
+            attendanceExcusalFooter
+        }
     }
 
     @ViewBuilder
-    private var attendanceExcusalButton: some View {
+    private var attendanceExcusalFooter: some View {
         if attendanceExcusalModel.isLoading {
-            ProgressView("Loading attendance excusal…")
-                .frame(maxWidth: .infinity, alignment: .leading)
+            EmptyView()
         } else if attendanceExcusalModel.isAttendanceExcusalEnabled {
             Button(action: {
                 attendanceExcusalModel.prepareForNewSubmission()
@@ -165,18 +124,21 @@ struct ParentHomeView: View {
             }) {
                 HStack(spacing: 12) {
                     Image(systemName: "calendar.badge.plus")
-                        .font(.title3)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.orange)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 30, height: 30)
+                        .background(Color(hex: "#F5EDE0"))
+                        .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Attendance Excusal")
-                            .font(.headline)
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
 
-                        Text("Submit an attendance excusal for a child.")
-                            .font(.footnote)
+                        Text("Submit an excusal for \(selectedContextTitle).")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
 
                     Spacer()
@@ -190,41 +152,31 @@ struct ParentHomeView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                .padding()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .background(Color(hex: "#FFFDF8").opacity(0.95))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.6)
+                )
+                .shadow(color: .black.opacity(0.05), radius: 12, x: 0, y: 6)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Submit attendance excusal")
             .disabled(attendanceExcusalModel.isSubmitting)
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 12) {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.title3)
-                        .foregroundStyle(.orange)
-                        .frame(width: 32, height: 32)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Attendance Excusal")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-
-                        Text("No attendance excusal endpoint is available for this profile.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(.quaternary)
-                )
-            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .background(Color(hex: "#FBF6EE").opacity(0.92))
+            .errorMessage(
+                attendanceExcusalModel.errorMessage,
+                font: .caption,
+                color: .orange,
+                horizontalPadding: 20,
+                topPadding: 6
+            )
         }
     }
 }
@@ -236,6 +188,9 @@ struct ParentHomeView: View {
         selectedContextTitle: "All Children",
         selectedContextSubtitle: "2 children",
         canShowChildSwitcher: true,
+        availableChildren: MBChild.previewChildren,
+        portfolioService: MBPortfolioService.preview(),
+        classesService: MBClassesService.preview(),
         onShowChildSwitcher: {},
         onSignOut: {},
         parentAssociationService: MBParentAssociationService.preview()

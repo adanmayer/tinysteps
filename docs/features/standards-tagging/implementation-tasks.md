@@ -15,7 +15,7 @@ Source plan: [implementation-plan.md](implementation-plan.md)
 - The app displays selected standards using `displayHashtag`.
 - The maximum selected standard suggestions is 4.
 - Tagging failure never blocks draft saving.
-- PM-reviewed behavior is merged into this task list: suggestions are removable, local AI unavailable is non-blocking, selected unit is visually clear, and compact UI uses `Suggested standards` copy with hashtags.
+- PM-reviewed behavior is merged into this task list: suggestions are removable, local AI unavailable is non-blocking, selected unit is visually clear, manual standard tagging is available, and compact UI uses `Suggested standards` copy with hashtags.
 
 ## Delivery Slices
 
@@ -25,7 +25,7 @@ Source plan: [implementation-plan.md](implementation-plan.md)
 | 2 | Standard tagging models and parser | Senior mobile developer |
 | 3 | Qwen prompt, schema, and streaming service | Senior mobile developer |
 | 4 | View model integration with selected unit | Senior mobile developer |
-| 5 | Observation UI standard chips | Senior mobile developer |
+| 5 | Observation UI standard chips and manual picker | Senior mobile developer |
 | 6 | Draft persistence of selected standards | Senior mobile developer |
 | 7 | Tests, build, and iPhone QA | Lead + QA |
 
@@ -42,7 +42,7 @@ Work:
 - Confirm selected-unit-only tagging is correct.
 - Confirm maximum of 4 selected standard chips.
 - Confirm whether static PYP chips stay visible after standard tagging ships.
-- Confirm whether manual standard selection is part of the first implementation slice.
+- Confirm manual standard selection is part of the first implementation slice.
 - Confirm user-facing copy for local AI unavailable.
 - Confirm whether local AI is enabled only in DEBUG/developer builds or also in explicitly configured TestFlight builds.
 - Confirm that confidence should remain secondary/internal in the first UI.
@@ -51,7 +51,7 @@ Acceptance:
 
 - Engineering does not need to guess deployment scope.
 - UI can be built without conflicting taxonomy displays.
-- Product acceptance requires removable suggested standards and non-blocking unavailable behavior.
+- Product acceptance requires removable suggested standards, manual add, and non-blocking unavailable behavior.
 
 ## Task 1 - Add Local AI Configuration And Ollama Client
 
@@ -107,6 +107,7 @@ Work:
 - Add `ObservationStandardEvidenceSpan`.
 - Add `ObservationStandardTaggingResult`.
 - Add `ObservationStandardTaggingEvent`.
+- Add `ObservationStandardTagSelectionSource` with at least `localAI` and `manual`.
 - Extend `ObservationCaptureDraft` to persist selected standard snapshots.
 - Persist full display snapshot, not only IDs.
 - Keep drafts valid with zero selected standards.
@@ -116,12 +117,14 @@ Acceptance:
 
 - Selected standard tags can render offline from draft data.
 - Draft encoding and decoding remains backward compatible or has an explicit migration/default path.
+- Saved selected standards preserve whether they were added by local AI or manually.
 
 Tests:
 
 - Encode/decode draft with selected standards.
 - Decode older draft payload without selected standards.
 - Verify `referenceID` uses `MBStandardReference.id`.
+- Encode/decode manual and local AI selection sources.
 
 ## Task 3 - Add Candidate Preparation
 
@@ -288,6 +291,9 @@ Work:
 - On `selectUnit`, clear old unit suggestions.
 - If transcript exists, retag for the new selected unit.
 - Cancel or invalidate old tagging requests when unit changes.
+- Add methods to manually add and remove selected standard references.
+- Prevent duplicate selected standards across AI and manual additions.
+- Track teacher-removed references so they do not immediately reappear from an in-flight AI stream.
 - Keep `canSave` true when tagging fails.
 - Preserve existing child matching and draft flow.
 - Treat model confidence as secondary state and do not require UI to show it prominently.
@@ -299,6 +305,8 @@ Acceptance:
 - Old unit suggestions cannot leak into the new unit.
 - Save remains available if local AI is offline.
 - Suggested standards can be removed and removed suggestions do not return unless retagging explicitly produces them again.
+- Manual standard addition works without local AI.
+- Manual standard addition can add tags after AI suggestions arrive.
 
 Tests:
 
@@ -306,8 +314,12 @@ Tests:
 - Unit change with transcript triggers retag.
 - Missing standards does not crash.
 - Failed tagging leaves draft ready.
+- Manual add inserts a selected-unit reference.
+- Manual add ignores duplicate selected references.
+- Remove deletes AI and manually added suggestions.
+- In-flight AI updates do not re-add a teacher-removed tag unless explicit retag occurs.
 
-## Task 8 - Update Observation UI For Standard Suggestions
+## Task 8 - Update Observation UI For Standard Suggestions And Manual Add
 
 Owner: Senior mobile developer
 
@@ -323,6 +335,12 @@ Work:
 - Limit selected chips to 4.
 - Animate streamed suggestions in.
 - Add remove action for incorrect suggestions.
+- Add an always-visible `Add standard` or `Add tag` action near `Suggested standards`.
+- Open a selected-unit standards picker from the add action.
+- Picker supports search by hashtag, title, detail, code, kind, and source ID.
+- Picker shows already selected references as selected/checked.
+- Picker prevents duplicate additions.
+- Picker allows adding standards even when local AI is unavailable.
 - Show local AI unavailable state without blocking save.
 - Use `Suggested standards` as the primary section copy.
 - Use calm unavailable copy, for example `Standard suggestions are unavailable. You can still save this observation.`
@@ -338,6 +356,8 @@ Acceptance:
 - Long standards do not break iPhone layout.
 - The teacher can remove a wrong suggestion.
 - The UI communicates suggestions, not confirmed standards.
+- The teacher can add standards manually when AI is unavailable.
+- The teacher can add extra standards manually after AI suggestions appear.
 
 Manual QA:
 
@@ -345,6 +365,10 @@ Manual QA:
 - Long hashtag and long title accessibility behavior.
 - Unit switch while tagging is streaming.
 - Local AI offline.
+- Manual add with local AI offline.
+- Manual add after AI suggestions.
+- Remove AI-added and manually added chips.
+- Search and select a long standard title.
 
 ## Task 9 - Persist Selected Standards In Draft Save
 
@@ -359,7 +383,7 @@ Files:
 Work:
 
 - Include selected standard snapshots in saved drafts.
-- Preserve `displayHashtag`, title, detail, source ID, kind, unit ID, and class ID.
+- Preserve `displayHashtag`, title, detail, source ID, kind, unit ID, class ID, and selection source.
 - Ensure save works when suggestions are empty.
 - Ensure removed suggestions are not saved.
 - Avoid requiring standards reload to render a saved draft.
@@ -368,12 +392,14 @@ Work:
 Acceptance:
 
 - Saved draft includes selected standard snapshots.
+- Saved draft distinguishes manual and local AI selections.
 - Removed suggestions stay removed.
 - Transcript-only draft remains valid.
 
 Tests:
 
 - Save draft with selected standards.
+- Save draft with manual selected standards.
 - Save draft after removing one suggestion.
 - Save transcript-only draft.
 
@@ -398,6 +424,9 @@ Work:
 - Test large standard candidate set.
 - Test malformed model output.
 - Test removing a suggested standard before saving.
+- Test manually adding a standard while local AI is offline.
+- Test manually adding extra standards after AI suggestions arrive.
+- Test removing both AI-added and manually added standards.
 - Test that confidence is not overemphasized in compact UI.
 - Test local AI disabled by build/configuration scope.
 

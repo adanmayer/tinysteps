@@ -9,9 +9,11 @@ struct TeacherHomeView: View {
     let selectedContextSubtitle: String
     let canShowClassSwitcher: Bool
     let classesService: ClassesService
+    let portfolioService: PortfolioService
     let faceEnrollmentStore: FaceEnrollmentStore
     let faceCaptureDraftStore: FaceCaptureDraftStore
     let observationDraftStore: ObservationCaptureDraftStore
+    let observationDraftPublisher: ObservationDraftPublishing
     let observationTaggingService: ObservationTaggingService
     let standardsLoadingService: MBStandardsLoadingService
     let observationSpeechTranscriber: ObservationSpeechTranscribing
@@ -19,25 +21,27 @@ struct TeacherHomeView: View {
     let onShowClassSwitcher: () -> Void
     let onSignOut: () -> Void
 
-    @State private var selectedTab: Int = 2
+    @State private var selectedTab: Int = 0
     @State private var selectedStudent: ClassRosterStudent?
     @State private var rosterReloadToken = UUID()
     @State private var captureSession: FaceCaptureSession?
     @State private var observationCaptureSession: ObservationCaptureSession?
+    @State private var reviewDraftCount = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            todayTab
+            streamTab
                 .tag(0)
                 .tabItem {
-                    Label("Today", systemImage: "camera")
+                    Label("Stream", systemImage: "rectangle.stack")
                 }
 
-            placeholderTab("Review", systemImage: "checkmark.circle")
+            reviewTab
                 .tag(1)
                 .tabItem {
                     Label("Review", systemImage: "checkmark.circle")
                 }
+                .badge(reviewDraftCount)
 
             ClassRosterView(
                 session: session,
@@ -74,10 +78,10 @@ struct TeacherHomeView: View {
             }
         }
         .tabViewStyle(.automatic)
-        .onAppear {
-            selectedTab = 2
-        }
         .toolbar(.visible, for: .tabBar)
+        .task(id: selectedClass?.id) {
+            await refreshReviewDraftCount()
+        }
         .fullScreenCover(item: $captureSession) { selectedCaptureSession in
             FaceCaptureView(
                 session: session,
@@ -100,6 +104,9 @@ struct TeacherHomeView: View {
                 session: session,
                 onDismiss: {
                     self.observationCaptureSession = nil
+                    Task {
+                        await refreshReviewDraftCount()
+                    }
                 }
             )
         }
@@ -119,45 +126,66 @@ struct TeacherHomeView: View {
         }
     }
 
-    private var todayTab: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "camera")
-                .font(.system(size: 42))
-                .foregroundStyle(.secondary)
-            Text("Today")
-                .font(.title3.weight(.semibold))
-            Text("Placeholder tab for Today.")
-                .foregroundStyle(.secondary)
-
-            Button(role: .destructive, action: onSignOut) {
-                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-            }
-            .buttonStyle(.bordered)
-            .padding(.top, 8)
-            .accessibilityLabel("Sign out")
-
-            Spacer()
-        }
-        .padding(.top, 16)
+    private var streamTab: some View {
+        PortfolioTimelineView(
+            session: session,
+            classContext: classContext,
+            selectedClass: selectedClass,
+            selectedScopeTitle: selectedContextTitle,
+            selectedScopeSubtitle: selectedContextSubtitle,
+            canShowScopeSwitcher: canShowClassSwitcher,
+            portfolioService: portfolioService,
+            classesService: classesService,
+            onShowScopeSwitcher: onShowClassSwitcher
+        )
+        .id(streamIdentity)
     }
 
-    private func placeholderTab(_ title: String, systemImage: String) -> some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: systemImage)
-                .font(.system(size: 42))
-                .foregroundStyle(.secondary)
-            Text(title)
-                .font(.title3.weight(.semibold))
-            Text("Placeholder tab for \(title).")
-                .foregroundStyle(.secondary)
-            Spacer()
+    private var reviewTab: some View {
+        ObservationReviewQueueView(
+            session: session,
+            classContext: classContext,
+            selectedClass: selectedClass,
+            selectedContextTitle: selectedContextTitle,
+            canShowClassSwitcher: canShowClassSwitcher,
+            draftStore: observationDraftStore,
+            publisher: observationDraftPublisher,
+            onShowClassSwitcher: onShowClassSwitcher,
+            onDraftsChanged: { count in
+                reviewDraftCount = count
+            }
+        )
+        .id(reviewQueueIdentity)
+    }
+
+    private var reviewQueueIdentity: String {
+        classContext.apiClassID ?? "all-classes"
+    }
+
+    private var streamIdentity: String {
+        streamClassID ?? "all-classes"
+    }
+
+    private var streamClassID: String? {
+        guard let classID = classContext.apiClassID, selectedClass?.id == classID else {
+            return nil
         }
-        .padding(.top, 16)
+
+        return classID
+    }
+
+    private func refreshReviewDraftCount() async {
+        guard let classID = classContext.apiClassID, selectedClass?.id == classID else {
+            reviewDraftCount = 0
+            return
+        }
+
+        do {
+            let drafts = try await observationDraftStore.loadDrafts(forClassID: classID)
+            reviewDraftCount = drafts.filter { $0.status == .savedForReview }.count
+        } catch {
+            reviewDraftCount = 0
+        }
     }
 
 }
@@ -169,20 +197,22 @@ struct TeacherHomeView_Previews: PreviewProvider {
             session: .previewTeacher,
             classContext: .allClasses,
             selectedClass: nil,
-                selectedContextTitle: "All Classes",
-                selectedContextSubtitle: "3 classes",
-                canShowClassSwitcher: true,
-                classesService: MBClassesService.preview(),
-                faceEnrollmentStore: FaceEnrollmentStoreUnavailable(),
-                faceCaptureDraftStore: InMemoryFaceCaptureDraftStore(),
-                observationDraftStore: InMemoryObservationCaptureDraftStore(),
-                observationTaggingService: DisabledObservationTaggingService(),
-                standardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
-                observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
-                observationChildMatcher: LocalObservationChildNameMatcher(),
-                onShowClassSwitcher: {},
-                onSignOut: {}
-            )
-        }
+            selectedContextTitle: "All Classes",
+            selectedContextSubtitle: "3 classes",
+            canShowClassSwitcher: true,
+            classesService: MBClassesService.preview(),
+            portfolioService: MBPortfolioService.preview(),
+            faceEnrollmentStore: FaceEnrollmentStoreUnavailable(),
+            faceCaptureDraftStore: InMemoryFaceCaptureDraftStore(),
+            observationDraftStore: InMemoryObservationCaptureDraftStore(),
+            observationDraftPublisher: UnavailableObservationDraftPublisher(),
+            observationTaggingService: DisabledObservationTaggingService(),
+            standardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
+            observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
+            observationChildMatcher: LocalObservationChildNameMatcher(),
+            onShowClassSwitcher: {},
+            onSignOut: {}
+        )
     }
+}
 #endif

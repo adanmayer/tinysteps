@@ -49,7 +49,9 @@ struct ObservationCaptureView: View {
 
                 ScrollView {
                     VStack(spacing: 26) {
+                        unitSelectionSection
                         transcriptCard
+                        quickFillTextButton
                         chipBloomSection
                         detectedChildrenSection
                         evidenceSection
@@ -219,6 +221,28 @@ struct ObservationCaptureView: View {
         }
     }
 
+    private var quickFillTextButton: some View {
+        Button("Insert sample text") {
+            model.updateTranscript("Bryan is drawing a wonderful picture and is very happy with it.")
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(Color(hex: "#3A342E"))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Capsule()
+                .fill(Color(hex: "#FFFDF8"))
+                .overlay(
+                    Capsule()
+                        .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+                )
+        )
+        .disabled(model.isRecording)
+        .opacity(model.isRecording ? 0.45 : 1.0)
+        .animation(.easeInOut(duration: 0.18), value: model.isRecording)
+    }
+
     private var transcriptCard: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 22)
@@ -268,6 +292,49 @@ struct ObservationCaptureView: View {
         .frame(minHeight: 148)
     }
 
+    private var unitSelectionSection: some View {
+        Group {
+            if model.hasUnitSections {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Unit")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.unitSections) { unit in
+                                let isSelected = model.selectedUnitSection?.id == unit.id
+
+                                Button {
+                                    model.selectUnit(id: unit.id)
+                                } label: {
+                                    Text(unit.unitTitle)
+                                        .font(.caption.weight(.medium))
+                                        .lineLimit(1)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            Capsule()
+                                                .fill(isSelected ? Color(hex: "#8DA67A").opacity(0.24) : Color(hex: "#FFFDF8"))
+                                                .overlay(
+                                                    Capsule()
+                                                        .stroke(
+                                                            isSelected ? Color(hex: "#6B8659") : Color(hex: "#E6D8C2"),
+                                                            lineWidth: isSelected ? 1.0 : 1.0
+                                                        )
+                                                )
+                                        )
+                                        .foregroundStyle(Color(hex: "#3A342E"))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var chipBloomSection: some View {
         VStack(spacing: 10) {
             Text("Chips bloom when you speak")
@@ -278,10 +345,10 @@ struct ObservationCaptureView: View {
                 columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
                 spacing: 8
             ) {
-                tagGroup(category: .transdisciplinaryTheme, values: themeValues)
-                tagGroup(category: .keyConcept, values: conceptValues)
-                tagGroup(category: .atlSkill, values: atlValues)
-                tagGroup(category: .learnerProfile, values: profileValues)
+                tagGroup(category: .transdisciplinaryTheme, values: themeValues, fallbackValues: unitThemeValues)
+                tagGroup(category: .keyConcept, values: conceptValues, fallbackValues: unitConceptValues)
+                tagGroup(category: .atlSkill, values: atlValues, fallbackValues: unitAtlValues)
+                tagGroup(category: .learnerProfile, values: profileValues, fallbackValues: unitProfileValues)
             }
         }
         .accessibilityElement(children: .contain)
@@ -289,15 +356,30 @@ struct ObservationCaptureView: View {
     }
 
     @ViewBuilder
-    private func tagGroup(category: ObservationPYPTagCategory, values: [String]) -> some View {
-        if model.isRecording || model.isSuggestingTags || values.isEmpty {
-            ObservationTagChip(
-                text: "\(category.displayTitle): -",
-                isSkeleton: true,
-                onTap: nil,
-                onRemove: nil
-            )
-            .opacity(model.isRecording || model.isSuggestingTags ? 0.35 : 0.28)
+    private func tagGroup(
+        category: ObservationPYPTagCategory,
+        values: [String],
+        fallbackValues: [String]
+    ) -> some View {
+        if values.isEmpty {
+            if fallbackValues.isEmpty {
+                ObservationTagChip(
+                    text: "\(category.displayTitle): -",
+                    isSkeleton: true,
+                    onTap: nil,
+                    onRemove: nil
+                )
+                .opacity(model.isRecording || model.isSuggestingTags ? 0.35 : 0.28)
+            } else {
+                ForEach(fallbackValues, id: \.self) { value in
+                    ObservationTagChip(
+                        text: "\(category.displayTitle): \(value)",
+                        isSkeleton: true,
+                        onTap: nil,
+                        onRemove: nil
+                    )
+                }
+            }
         } else {
             ForEach(values, id: \.self) { value in
                 ObservationTagChip(
@@ -484,19 +566,47 @@ struct ObservationCaptureView: View {
     }
 
     private var themeValues: [String] {
-        tagsToStrings(model.tags.transdisciplinaryTheme.map { [$0] } ?? [])
+        model.filteredTagValues(
+            tagsToStrings(model.tags.transdisciplinaryTheme.map { [$0] } ?? []),
+            for: .transdisciplinaryTheme
+        )
     }
 
     private var conceptValues: [String] {
-        tagsToStrings(model.tags.keyConcepts)
+        model.filteredTagValues(
+            tagsToStrings(model.tags.keyConcepts),
+            for: .keyConcept
+        )
     }
 
     private var atlValues: [String] {
-        tagsToStrings(model.tags.atlSkills)
+        model.filteredTagValues(
+            tagsToStrings(model.tags.atlSkills),
+            for: .atlSkill
+        )
     }
 
     private var profileValues: [String] {
-        tagsToStrings(model.tags.learnerProfile)
+        model.filteredTagValues(
+            tagsToStrings(model.tags.learnerProfile),
+            for: .learnerProfile
+        )
+    }
+
+    private var unitThemeValues: [String] {
+        model.hashtagValues(for: .transdisciplinaryTheme)
+    }
+
+    private var unitConceptValues: [String] {
+        model.hashtagValues(for: .keyConcept)
+    }
+
+    private var unitAtlValues: [String] {
+        model.hashtagValues(for: .atlSkill)
+    }
+
+    private var unitProfileValues: [String] {
+        model.hashtagValues(for: .learnerProfile)
     }
 
     private func tagsToStrings<T: RawRepresentable>(_ values: [T]) -> [String] where T.RawValue == String {

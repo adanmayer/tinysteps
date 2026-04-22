@@ -16,6 +16,7 @@ final class SignedInSessionModel {
     let session: AuthSession
 
     private let authController: AuthController
+    private let accountService: AccountService
     private let childrenService: ChildrenService
     private let classesService: ClassesService
     private let childSelectionStore: ChildSelectionStore
@@ -25,6 +26,7 @@ final class SignedInSessionModel {
     init(
         session: AuthSession,
         authController: AuthController,
+        accountService: AccountService,
         childrenService: ChildrenService,
         classesService: ClassesService,
         childSelectionStore: ChildSelectionStore,
@@ -32,6 +34,7 @@ final class SignedInSessionModel {
     ) {
         self.session = session
         self.authController = authController
+        self.accountService = accountService
         self.childrenService = childrenService
         self.classesService = classesService
         self.childSelectionStore = childSelectionStore
@@ -171,6 +174,10 @@ final class SignedInSessionModel {
         errorMessage = nil
         defer { isLoading = false }
 
+        if await resolveRoleFromAccount() {
+            return
+        }
+
         if let role = session.apiRole ?? resolvedRole {
             await loadData(for: role)
             return
@@ -185,12 +192,25 @@ final class SignedInSessionModel {
         errorMessage = "Unable to determine account type."
     }
 
+    private func resolveRoleFromAccount() async -> Bool {
+        do {
+            let account = try await accountService.loadAccount(for: session)
+            let role = account.role
+            resolvedRole = role
+            authController.recordIdentifiedRole(role)
+            await loadData(for: role)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func loadData(for role: MBAPIRole) async {
         do {
             switch role {
             case .parent:
                 try await loadChildren()
-            case .teacher, .student:
+            case .teacher, .advisor, .student:
                 try await loadClasses()
             }
         } catch {
@@ -219,7 +239,7 @@ final class SignedInSessionModel {
             availableClasses = classes
             selectedClassContext = resolvedClassSelection(for: classes)
             persistClassSelection()
-            resolvedRole = .teacher
+            resolvedRole = .advisor
             return true
         } catch {
             return false

@@ -28,6 +28,7 @@ final class ObservationCaptureViewModel {
     private var shouldCancelPendingStart = false
     private var currentDraftID: UUID?
     private var currentDraftCreatedAt: Date?
+    private(set) var selectedUnitID: String?
     private(set) var standardsLoadResult: MBStandardsLoadResult?
     private var dismissedChildMatchKeys: Set<String> = []
     private var manuallyAssignedChildKeys: Set<String> = []
@@ -52,6 +53,18 @@ final class ObservationCaptureViewModel {
 
     var className: String {
         captureSession.className
+    }
+
+    var unitSections: [MBStandardUnitSection] {
+        standardsLoadResult?.unitSections ?? []
+    }
+
+    var selectedUnitSection: MBStandardUnitSection? {
+        guard unitSections.isEmpty == false else {
+            return nil
+        }
+
+        return unitSections.first(where: { $0.id == selectedUnitID }) ?? unitSections.first
     }
 
     var rosterCount: Int {
@@ -100,6 +113,82 @@ final class ObservationCaptureViewModel {
         }
 
         return status == .failed || status == .partialFailure
+    }
+
+    var hasUnitSections: Bool {
+        unitSections.isEmpty == false
+    }
+
+    func selectUnit(id unitID: String) {
+        guard unitSections.contains(where: { $0.id == unitID }) else {
+            return
+        }
+
+        selectedUnitID = unitID
+    }
+
+    func filteredTagValues(_ values: [String], for category: ObservationPYPTagCategory) -> [String] {
+        guard let selectedReferences = selectedUnitSection?.references, selectedReferences.isEmpty == false else {
+            return values
+        }
+
+        let supportedValues = supportedTagValues(for: category, in: selectedReferences)
+        guard supportedValues.isEmpty == false else {
+            return values
+        }
+
+        let filtered = values.filter { value in
+            supportedValues.contains(ObservationTagValueNormalizer.normalize(value))
+        }
+        return filtered.isEmpty ? values : filtered
+    }
+
+    func hashtagValues(for category: ObservationPYPTagCategory) -> [String] {
+        guard let selectedReferences = selectedUnitSection?.references,
+              selectedReferences.isEmpty == false else {
+            return []
+        }
+
+        return Array(uniqueHashtags(from: relevantReferences(for: category, in: selectedReferences)).prefix(4))
+    }
+
+    private func relevantReferences(
+        for category: ObservationPYPTagCategory,
+        in references: [MBStandardReference]
+    ) -> [MBStandardReference] {
+        let searchableReferences: [MBStandardReference]
+
+        switch category {
+        case .transdisciplinaryTheme:
+            searchableReferences = references.filter { $0.kind == .pypTheme }
+        case .keyConcept:
+            searchableReferences = references.filter { $0.kind != .pypTheme }
+        case .atlSkill:
+            searchableReferences = references.filter { $0.kind != .pypTheme }
+        case .learnerProfile:
+            searchableReferences = references.filter { $0.kind != .pypTheme }
+        }
+
+        return searchableReferences
+    }
+
+    private func uniqueHashtags(from references: [MBStandardReference]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+
+        for reference in references {
+            let hashtag = reference.displayHashtag
+
+            if hashtag.isEmpty {
+                continue
+            }
+
+            if seen.insert(hashtag).inserted {
+                result.append(hashtag)
+            }
+        }
+
+        return result
     }
 
     var errorMessage: String? {
@@ -367,13 +456,76 @@ final class ObservationCaptureViewModel {
             selectedClass: captureSession.selectedClass
         )
 
-        hasLoadedStandards = result.status != .failed
+        hasLoadedStandards = [.loaded, .empty].contains(result.status)
         standardsLoadResult = result
+        syncSelectedUnit(from: result)
 
         if let errorMessage = result.errorMessage,
            [.permissionUnknown, .ready, .draftReady].contains(state) {
             statusMessage = errorMessage
         }
+    }
+
+    private func syncSelectedUnit(from result: MBStandardsLoadResult) {
+        guard result.unitSections.isEmpty == false else {
+            selectedUnitID = nil
+            return
+        }
+
+        if let selectedUnitID, result.unitSections.contains(where: { $0.id == selectedUnitID }) {
+            return
+        }
+
+        selectedUnitID = result.unitSections.first?.id
+    }
+
+    private func supportedTagValues(for category: ObservationPYPTagCategory, in references: [MBStandardReference]) -> Set<String> {
+        let valuesToMatch: [String]
+        let searchableReferences: [MBStandardReference]
+
+        switch category {
+        case .transdisciplinaryTheme:
+            valuesToMatch = PYPTheme.allCases.map(\.rawValue)
+            searchableReferences = references.filter { $0.kind == .pypTheme }
+        case .keyConcept:
+            valuesToMatch = PYPKeyConcept.allCases.map(\.rawValue)
+            searchableReferences = references.filter { $0.kind != .pypTheme }
+        case .atlSkill:
+            valuesToMatch = PYPATLSkillCluster.allCases.map(\.rawValue)
+            searchableReferences = references.filter { $0.kind != .pypTheme }
+        case .learnerProfile:
+            valuesToMatch = PYPLearnerProfile.allCases.map(\.rawValue)
+            searchableReferences = references.filter { $0.kind != .pypTheme }
+        }
+
+        guard searchableReferences.isEmpty == false else {
+            return []
+        }
+
+        let searchableText = searchableReferences
+            .map(Self.normalizedStandardText(_:))
+            .joined(separator: " ")
+
+        return Set(
+            valuesToMatch.compactMap { value in
+                let normalizedValue = ObservationTagValueNormalizer.normalize(value)
+                guard searchableText.contains(normalizedValue) else {
+                    return nil
+                }
+                return normalizedValue
+            }
+        )
+    }
+
+    private static func normalizedStandardText(_ reference: MBStandardReference) -> String {
+        let chunks = [
+            reference.title,
+            reference.code ?? "",
+            reference.detail ?? "",
+            reference.displayHashtag
+        ]
+
+        return ObservationTagValueNormalizer.normalize(chunks.joined(separator: " "))
     }
 
     private func stopRecording() async {

@@ -190,6 +190,10 @@ private struct MockFaceEnrollmentStore: FaceEnrollmentStore {
         statuses[studentKey] ?? .needsSetup
     }
 
+    func snapshots(for studentKeys: [String]) async throws -> [FaceEnrollmentSnapshot] {
+        []
+    }
+
     func deleteEnrollment(for studentKey: String) async throws {
     }
 
@@ -213,6 +217,10 @@ private struct FailingFaceEnrollmentStore: FaceEnrollmentStore {
     }
 
     func status(for studentKey: String) async throws -> FaceEnrollmentStatus {
+        throw error
+    }
+
+    func snapshots(for studentKeys: [String]) async throws -> [FaceEnrollmentSnapshot] {
         throw error
     }
 

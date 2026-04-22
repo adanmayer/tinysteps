@@ -53,6 +53,7 @@ The model output must be:
 - The model must return `MBStandardReference.id` values only.
 - The candidate vocabulary is the selected unit's loaded standards, not all class standards by default.
 - The compact UI uses `displayHashtag` for selected references.
+- Manual standard tagging is always available, both when local AI is unavailable and when the teacher wants to add more tags.
 - Persistence stores normalized reference snapshots, not just model output strings.
 - Tagging failure never blocks saving a transcript draft.
 - The local AI call is behind an explicit local-AI service boundary and configuration.
@@ -110,6 +111,7 @@ When a teacher captures or types an observation:
 7. The teacher can save the draft even if no standards are suggested.
 8. The teacher can remove any incorrect suggested standard before saving.
 9. The UI labels these as suggested standards, not confirmed standards.
+10. The teacher can manually add standards from the selected unit when local AI is unavailable or when additional standards are needed.
 
 When the selected unit changes:
 
@@ -117,6 +119,15 @@ When the selected unit changes:
 2. Candidate preview hashtags update immediately from the newly selected unit.
 3. If the transcript is non-empty, the standard tagging request is rerun for the new unit.
 4. In-flight tagging for the old unit is cancelled or ignored by request ID.
+
+Manual tagging behavior:
+
+1. The capture view provides an `Add standard` or `Add tag` action near the suggested standards row.
+2. The action opens a selected-unit standard picker with search.
+3. The picker lists the selected unit's `MBStandardReference` values using `displayHashtag`, kind, code, title, and enough detail to disambiguate long standards.
+4. Manually selected references are added to the same selected standards row as AI suggestions.
+5. Teacher-removed tags stay removed until the teacher manually adds them again or explicitly reruns AI suggestions.
+6. Local AI unavailable should make manual tagging more prominent, not block the capture flow.
 
 ## Candidate Scope
 
@@ -304,6 +315,7 @@ Add standard-specific tagging models under Observation Capture:
 struct ObservationStandardTagSuggestion: Identifiable, Codable, Equatable, Sendable {
     var id: String { referenceID }
     let referenceID: String
+    let selectionSource: ObservationStandardTagSelectionSource
     let sourceID: String
     let kind: MBStandardReference.Kind
     let classID: String
@@ -316,6 +328,13 @@ struct ObservationStandardTagSuggestion: Identifiable, Codable, Equatable, Senda
     let displayHashtag: String
     let confidence: Double
     let evidenceQuotes: [String]
+}
+```
+
+```swift
+enum ObservationStandardTagSelectionSource: String, Codable, Sendable {
+    case localAI
+    case manual
 }
 ```
 
@@ -387,6 +406,7 @@ Observation Capture should show:
 - The selected unit must be visually obvious because it determines the candidate standards.
 - A compact standards suggestion row below the transcript.
 - Up to 4 suggested standard chips using `displayHashtag`.
+- An always-available manual `Add standard` action for adding tags from the selected unit.
 - Loading/streaming animation while local Qwen is responding.
 - A calm recoverable unavailable state if local AI is offline.
 - Manual remove action for an incorrect suggested standard.
@@ -397,6 +417,23 @@ Observation Capture should show:
 The existing grayed-out candidate hashtags below the textbox should continue to reflect the selected unit. When model suggestions arrive, selected suggestions should be visually promoted from candidate chips to selected chips.
 
 The UI should not show raw long standards in the compact row. Long title/detail can appear in an expanded sheet or accessibility label.
+
+## Manual Standard Selection
+
+Manual standard selection is required for two cases:
+
+- Local AI is unavailable.
+- The teacher needs to add another correct tag that AI did not suggest.
+
+Picker requirements:
+
+- Scope defaults to the currently selected unit.
+- Search filters by hashtag, title, detail, code, kind, and source ID.
+- Show already selected references as selected/checked.
+- Prevent duplicate selections.
+- Allow removing selected tags directly from chips without opening the picker.
+- If product later allows cross-unit tagging, it must be a deliberate mode switch; the MVP picker should not silently mix units.
+- Manual additions and AI additions use the same persisted snapshot model, with `selectionSource` preserving how the tag was added.
 
 ## Persistence
 
@@ -458,6 +495,9 @@ All of these should leave the observation draft saveable.
 - Tagging unavailable does not block saving the transcript.
 - Local AI unavailable is shown as calm non-blocking copy, not a scary technical error.
 - The teacher can remove suggested standards before saving.
+- The teacher can manually add standards from the selected unit even when local AI is unavailable.
+- The teacher can manually add additional standards after AI suggestions arrive.
+- Removed standards do not reappear unless manually re-added or an explicit retag action is invoked.
 - Saved drafts include enough selected-standard snapshot data to render without reloading standards.
 - No transcript, prompt, raw response, child name, or evidence quote is logged in production.
 - The implementation compiles for iPhone.
