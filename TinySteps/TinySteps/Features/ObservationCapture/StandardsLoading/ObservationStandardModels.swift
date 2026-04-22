@@ -59,6 +59,41 @@ struct MBStandardsCacheEntry: Equatable, Sendable {
     let loadedAt: Date
 }
 
+enum MBStandardSourceIdentity: Codable, Equatable, Hashable, Sendable {
+    case standard(unitID: String, standardID: String)
+    case syllabus(unitID: String, syllabusID: String)
+    case scopeSequence(unitID: String, expectationID: String)
+    case pypTheme(themeID: String)
+    case pypThemeDescription(themeID: String, descriptionID: String)
+    case unresolved(kind: String, generatedID: String)
+
+    var isPersistable: Bool {
+        switch self {
+        case .unresolved:
+            return false
+        case .standard, .syllabus, .scopeSequence, .pypTheme, .pypThemeDescription:
+            return true
+        }
+    }
+
+    var stableKey: String {
+        switch self {
+        case .standard(let unitID, let standardID):
+            return "standard|unit=\(unitID)|standard=\(standardID)"
+        case .syllabus(let unitID, let syllabusID):
+            return "syllabus|unit=\(unitID)|syllabus=\(syllabusID)"
+        case .scopeSequence(let unitID, let expectationID):
+            return "scopeSequence|unit=\(unitID)|expectation=\(expectationID)"
+        case .pypTheme(let themeID):
+            return "pypTheme|theme=\(themeID)"
+        case .pypThemeDescription(let themeID, let descriptionID):
+            return "pypThemeDescription|theme=\(themeID)|description=\(descriptionID)"
+        case .unresolved(let kind, let generatedID):
+            return "unresolved|\(kind)|generated=\(generatedID)"
+        }
+    }
+}
+
 struct MBStandardReference: Equatable, Hashable, Sendable, Identifiable {
     enum Kind: String, Codable, Sendable {
         case standard
@@ -78,10 +113,11 @@ struct MBStandardReference: Equatable, Hashable, Sendable, Identifiable {
     let detail: String?
     let isUnresolvedTheme: Bool
     let displayHashtag: String
+    let sourceIdentity: MBStandardSourceIdentity
     let stableIdentity: String?
 
     var id: String {
-        stableIdentity ?? "\(classID)|\(unitID)|\(kind.rawValue)|\(sourceID)"
+        stableIdentity ?? "\(classID)|\(unitID)|\(sourceIdentity.stableKey)"
     }
 }
 

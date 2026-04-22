@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
@@ -25,6 +26,8 @@ final class ObservationCaptureViewModel {
     private let standardTaggingCandidateBuilder = ObservationStandardTaggingCandidateBuilder()
     private let maxStandardCandidates = 40
     private let maxStandardTagSuggestions = 4
+    private static let standardTaggingUnavailableMessage =
+        "Local standard tagging service is unavailable. You can still add tags manually."
     private var activeTranscriptTask: Task<Void, Never>?
     private var standardTagUpdateTask: Task<Void, Never>?
     private var hasPrepared = false
@@ -39,6 +42,10 @@ final class ObservationCaptureViewModel {
     private var dismissedChildMatchKeys: Set<String> = []
     private var manuallyAssignedChildKeys: Set<String> = []
     private var manuallyExcludedStandardTagIDs: Set<String> = []
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "TinySteps",
+        category: "ObservationCaptureViewModel"
+    )
 
     init(
         captureSession: ObservationCaptureSession,
@@ -128,18 +135,19 @@ final class ObservationCaptureViewModel {
         unitSections.isEmpty == false
     }
 
-    var standardTagPreviewHashtags: [String] {
-        let references = selectedUnitSection?.references ?? []
-        return ObservationStandardTaggingCandidateBuilder()
-            .candidatePreviewHashtags(for: references)
-            .prefix(4)
-            .map { $0.isEmpty ? "—" : $0 }
+    var needsStandardsReload: Bool {
+        standardsLoadResult == nil || unitSections.isEmpty
+    }
+
+    var canReloadStandards: Bool {
+        isLoadingStandards == false
     }
 
     var standardTagPickerCandidates: [MBStandardReference] {
         let references = selectedUnitSection?.references ?? []
         return references
             .uniqueByID()
+            .filter(\.sourceIdentity.isPersistable)
             .filter { candidate in
                 standardTagSuggestions.contains { $0.referenceID == candidate.id } == false
             }
@@ -193,6 +201,7 @@ final class ObservationCaptureViewModel {
         for category: ObservationPYPTagCategory,
         in references: [MBStandardReference]
     ) -> [MBStandardReference] {
+        let references = references.filter(\.sourceIdentity.isPersistable)
         let searchableReferences: [MBStandardReference]
 
         switch category {
@@ -258,7 +267,7 @@ final class ObservationCaptureViewModel {
         }
 
         Task {
-            await loadStandards()
+            await loadStandards(forceRefresh: true)
         }
     }
 
@@ -287,6 +296,9 @@ final class ObservationCaptureViewModel {
 
     func updateTranscript(_ newTranscript: String) {
         transcript = newTranscript
+        let trimmedTranscript = newTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcriptWasEmpty = trimmedTranscript.isEmpty
+
         let automaticMatches = childMatcher.matchChildren(
             in: newTranscript,
             roster: captureSession.rosterSnapshot
@@ -300,8 +312,16 @@ final class ObservationCaptureViewModel {
             .map(Self.matchedChild)
 
         matchedChildren = automaticMatches + manualMatches
-
-        if newTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        
+        if transcriptWasEmpty {
+            tags = .empty
+            confidence = 0
+            evidenceSpans = []
+            standardTagSuggestions = []
+            manuallyExcludedStandardTagIDs.removeAll()
+            pendingRetag = true
+            statusMessage = nil
+        } else {
             tags = .empty
             confidence = 0
             evidenceSpans = []
@@ -458,6 +478,7 @@ final class ObservationCaptureViewModel {
             title: candidate.title,
             detail: candidate.detail,
             displayHashtag: candidate.displayHashtag,
+            sourceIdentity: candidate.sourceIdentity,
             evidenceQuotes: [],
             selectionSource: .manual
         )
@@ -529,10 +550,6 @@ final class ObservationCaptureViewModel {
         }
     }
 
-    private func loadStandards() async {
-        await loadStandards(forceRefresh: false)
-    }
-
     func retryLoadStandards() async {
         await loadStandards(forceRefresh: true)
     }
@@ -557,7 +574,8 @@ final class ObservationCaptureViewModel {
 
         let result = await standardsLoadingService.loadStandards(
             for: authSession,
-            selectedClass: captureSession.selectedClass
+            selectedClass: captureSession.selectedClass,
+            forceRefresh: forceRefresh
         )
 
         hasLoadedStandards = [.loaded, .empty].contains(result.status)
@@ -612,7 +630,7 @@ final class ObservationCaptureViewModel {
             }
 
             self.standardTagSuggestions = []
-            await self.suggestStandardTags()
+            _ = await self.suggestStandardTags()
         }
 
         standardTagUpdateTask = task
@@ -620,6 +638,7 @@ final class ObservationCaptureViewModel {
 
     private func supportedTagValues(for category: ObservationPYPTagCategory, in references: [MBStandardReference]) -> Set<String> {
         let valuesToMatch: [String]
+        let references = references.filter(\.sourceIdentity.isPersistable)
         let searchableReferences: [MBStandardReference]
 
         switch category {
@@ -694,25 +713,127 @@ final class ObservationCaptureViewModel {
         state = .suggestingTags
         tags = .empty
         confidence = 0
-        standardTagSuggestions = standardTagSuggestions.filter { $0.selectionSource == .manual }
+        standardTagSuggestions = []
+        manuallyExcludedStandardTagIDs.removeAll()
         evidenceSpans = []
         pendingRetag = true
-        statusMessage = nil
+        statusMessage = "Requesting AI tags..."
+
+        var taggingErrors: [String] = []
 
         do {
             try await suggestPYPTags()
-            await suggestStandardTags()
+        } catch {
+            taggingErrors.append("PYP tagging failed: \(error.localizedDescription).")
+        }
 
-            pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
-            if pendingRetag {
+        if let standardTaggingError = await suggestStandardTags() {
+            taggingErrors.append(standardTaggingError)
+        }
+
+        pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
+        let hasStatusMessage = statusMessage != "Requesting AI tags..."
+        if pendingRetag && taggingErrors.isEmpty {
+            if hasStatusMessage == false {
                 statusMessage = "No tags were suggested for this transcript. You can add tags manually."
             }
-            state = .draftReady
-        } catch {
+        } else if taggingErrors.isEmpty {
+            if hasStatusMessage == false {
+                statusMessage = nil
+            }
+        } else {
             pendingRetag = true
-            statusMessage = "Tagging failed: \(error.localizedDescription). This transcript can still be saved as a local draft."
-            state = .draftReady
+            statusMessage = taggingErrors.joined(separator: " ")
         }
+
+        if statusMessage == nil {
+            pendingRetag = false
+        }
+
+        state = .draftReady
+    }
+
+    private func suggestStandardTags() async -> String? {
+        var standardTaggingError: String?
+
+        guard let selectedUnitSection else {
+            let message = "No learning unit is selected for standard tagging."
+            logger.warning("Standard tagging skipped: \(message, privacy: .public)")
+            statusMessage = message
+            return message
+        }
+
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTranscript.isEmpty == false else {
+            let message = "No transcript text available for standard tagging."
+            logger.warning("Standard tagging skipped: \(message, privacy: .public)")
+            statusMessage = message
+            return message
+        }
+
+        let candidates = standardTaggingCandidateBuilder.buildCandidates(
+            from: selectedUnitSection,
+            transcript: trimmedTranscript,
+            maxCandidates: maxStandardCandidates
+        )
+
+        if candidates.isEmpty {
+            let message = "No standard candidates for this unit."
+            logger.warning("Standard tagging skipped: \(message, privacy: .public)")
+            statusMessage = message
+            return message
+        }
+
+        let candidateLookup = candidateLookup(from: candidates)
+        let request = ObservationStandardTaggingRequest(
+            classID: captureSession.classID,
+            className: captureSession.className,
+            selectedUnitID: selectedUnitSection.id,
+            selectedUnitTitle: selectedUnitSection.unitTitle,
+            transcript: trimmedTranscript,
+            candidates: candidates,
+            excludedSuggestionIDs: manuallyExcludedStandardTagIDs,
+            candidateLookup: candidateLookup
+        )
+        let classIDForLogging = captureSession.classID
+
+        do {
+            for try await event in standardTaggingService.suggestStandardTags(request: request) {
+                switch event {
+                case .partial(let suggestions):
+                    replaceStandardTagSuggestions(with: suggestions, mergeManual: true)
+                    statusMessage = nil
+                case .suggestions(let result):
+                    replaceStandardTagSuggestions(with: result.suggestions, mergeManual: true)
+                    confidence = max(confidence, result.confidence)
+                    if result.suggestions.isEmpty == false {
+                        statusMessage = nil
+                    } else if tags.isEmpty {
+                        statusMessage = "No standard tags were suggested for this unit."
+                    }
+                case ObservationStandardTaggingEvent.unavailable:
+                    standardTaggingError = Self.standardTaggingUnavailableMessage
+                    logger.warning("Standard tagging unavailable; manual standard selection is active.")
+                    statusMessage = standardTaggingError
+                }
+            }
+        } catch {
+            let message: String
+            if tags.isEmpty && standardTagSuggestions.isEmpty {
+                message = "Standard tagging failed: \(error.localizedDescription). This transcript can still be saved as a local draft. Fallback to manual tagging is available."
+            } else {
+                message = "Standard tagging failed: \(error.localizedDescription). You can still add tags manually."
+            }
+            logger.error("Standard tagging failed for classID=\(classIDForLogging, privacy: .public): \(message, privacy: .public)")
+            standardTaggingError = message
+            statusMessage = message
+        }
+
+        if standardTaggingError == Self.standardTaggingUnavailableMessage {
+            logger.warning("Local standard tagging is unavailable. Manual standard selection is active.")
+        }
+
+        return standardTaggingError
     }
 
     private func suggestPYPTags() async throws {
@@ -732,72 +853,6 @@ final class ObservationCaptureViewModel {
             case .unavailable:
                 pendingRetag = true
                 statusMessage = "PYP tags are currently unavailable. Add tags manually."
-            }
-        }
-    }
-
-    private func suggestStandardTags() async {
-        guard let selectedUnitSection else {
-            statusMessage = "No learning unit is selected for standard tagging."
-            return
-        }
-
-        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedTranscript.isEmpty == false else {
-            statusMessage = "No transcript text available for standard tagging."
-            return
-        }
-
-        let candidates = standardTaggingCandidateBuilder.buildCandidates(
-            from: selectedUnitSection,
-            transcript: trimmedTranscript,
-            maxCandidates: maxStandardCandidates
-        )
-
-        if candidates.isEmpty {
-            statusMessage = "No standard candidates for this unit."
-            return
-        }
-
-        let candidateLookup = candidateLookup(from: candidates)
-        let request = ObservationStandardTaggingRequest(
-            classID: captureSession.classID,
-            className: captureSession.className,
-            selectedUnitID: selectedUnitSection.id,
-            selectedUnitTitle: selectedUnitSection.unitTitle,
-            transcript: trimmedTranscript,
-            candidates: candidates,
-            excludedSuggestionIDs: manuallyExcludedStandardTagIDs,
-            candidateLookup: candidateLookup
-        )
-
-        do {
-            for try await event in standardTaggingService.suggestStandardTags(request: request) {
-                switch event {
-                case .partial(let suggestions):
-                    replaceStandardTagSuggestions(with: suggestions, mergeManual: true)
-                    if suggestions.isEmpty == false {
-                        statusMessage = nil
-                    }
-                case .suggestions(let result):
-                    replaceStandardTagSuggestions(with: result.suggestions, mergeManual: true)
-                    confidence = max(confidence, result.confidence)
-                    if result.suggestions.isEmpty == false {
-                        pendingRetag = false
-                        statusMessage = nil
-                    } else if tags.isEmpty {
-                        statusMessage = "No standard tags were suggested for this unit."
-                    }
-                case .unavailable:
-                    if pendingRetag && tags.isEmpty && standardTagSuggestions.isEmpty {
-                        pendingRetag = true
-                    }
-                    statusMessage = "Standard tagging is unavailable right now. Add tags manually."
-                }
-            }
-        } catch {
-            if tags.isEmpty && standardTagSuggestions.isEmpty {
-                statusMessage = "Standard tagging failed: \(error.localizedDescription). This transcript can still be saved as a local draft."
             }
         }
     }
@@ -838,7 +893,7 @@ final class ObservationCaptureViewModel {
     }
 
     private func referenceForStandardTag(referenceID: String) -> MBStandardReference? {
-        selectedUnitSection?.references.first(where: { $0.id == referenceID })
+        selectedUnitSection?.references.first(where: { $0.id == referenceID && $0.sourceIdentity.isPersistable })
     }
 
     private func candidateLookup(from candidates: [ObservationStandardTagCandidate]) -> [String: MBStandardReference] {
@@ -861,6 +916,7 @@ final class ObservationCaptureViewModel {
                 detail: candidate.detail,
                 isUnresolvedTheme: false,
                 displayHashtag: candidate.displayHashtag,
+                sourceIdentity: candidate.sourceIdentity,
                 stableIdentity: candidate.stableIdentity
             )
         }

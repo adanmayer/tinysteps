@@ -10,8 +10,9 @@ struct ObservationStandardTaggingCandidateBuilder {
     ) -> [ObservationStandardTagCandidate] {
         let cleanedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let transcriptTokens = transcriptTokens(from: cleanedTranscript)
-        let pypThemes = unitSection.references.filter { $0.kind == .pypTheme }
-        let nonThemes = unitSection.references.filter { $0.kind != .pypTheme }
+        let persistableReferences = unitSection.references.filter(\.sourceIdentity.isPersistable)
+        let pypThemes = persistableReferences.filter { $0.kind == .pypTheme }
+        let nonThemes = persistableReferences.filter { $0.kind != .pypTheme }
 
         let ranked = nonThemes
             .uniqueByID()
@@ -48,9 +49,10 @@ struct ObservationStandardTaggingCandidateBuilder {
                     className: "",
                     programCode: reference.programCode,
                     code: reference.code,
-                    title: reference.title,
+                    title: taggingTitle(for: reference),
                     detail: reference.detail,
                     displayHashtag: reference.displayHashtag,
+                    sourceIdentity: reference.sourceIdentity,
                     stableIdentity: reference.stableIdentity
                 )
             }
@@ -59,6 +61,7 @@ struct ObservationStandardTaggingCandidateBuilder {
     func candidatePreviewHashtags(for references: [MBStandardReference]) -> [String] {
         Array(
             references
+                .filter(\.sourceIdentity.isPersistable)
                 .uniqueByID()
                 .compactMap(\.displayHashtag)
                 .prefix(4)
@@ -85,7 +88,7 @@ struct ObservationStandardTaggingCandidateBuilder {
     }
 
     private func tokens(from text: String) -> [String] {
-        text
+        expandedForTokenization(text)
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .compactMap { token in
                 let trimmed = token
@@ -95,6 +98,50 @@ struct ObservationStandardTaggingCandidateBuilder {
                 guard trimmed.isEmpty == false else { return nil }
                 return trimmed
             }
+    }
+
+    private func taggingTitle(for reference: MBStandardReference) -> String {
+        guard reference.kind == .pypTheme,
+              reference.isUnresolvedTheme,
+              let title = titleFromHashtag(reference.displayHashtag) else {
+            return reference.title
+        }
+
+        return title
+    }
+
+    private func titleFromHashtag(_ hashtag: String) -> String? {
+        let words = tokens(from: hashtag)
+            .filter { $0 != "ref" && $0 != "pyp" && $0 != "theme" }
+
+        guard words.isEmpty == false else {
+            return nil
+        }
+
+        return words
+            .map { word in
+                guard let first = word.first else { return word }
+                return first.uppercased() + word.dropFirst()
+            }
+            .joined(separator: " ")
+    }
+
+    private func expandedForTokenization(_ text: String) -> String {
+        var result = ""
+        var previous: Character?
+
+        for character in text {
+            if let previous,
+               previous.isLowercase || previous.isNumber,
+               character.isUppercase {
+                result.append(" ")
+            }
+
+            result.append(character)
+            previous = character
+        }
+
+        return result
     }
 }
 

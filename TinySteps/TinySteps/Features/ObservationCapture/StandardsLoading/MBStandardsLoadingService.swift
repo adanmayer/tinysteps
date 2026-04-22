@@ -137,7 +137,8 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                         return reference
                     }
 
-                    guard let resolvedTheme = themes.themesByID[reference.sourceID] else {
+                    guard let resolvedTheme = themes.theme(for: reference) else {
+                        let hasReadableTitle = reference.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                         return MBStandardReference(
                             kind: .pypTheme,
                             classID: reference.classID,
@@ -146,12 +147,26 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                             programCode: reference.programCode,
                             sourceID: reference.sourceID,
                             code: reference.code,
-                            title: unresolvedThemeTitle(reference.sourceID),
+                            title: hasReadableTitle ? reference.title : unresolvedThemeTitle(reference.sourceID),
                             detail: nil,
                             isUnresolvedTheme: true,
                             displayHashtag: reference.displayHashtag,
+                            sourceIdentity: reference.sourceIdentity,
                             stableIdentity: reference.stableIdentity
                         )
+                    }
+
+                    let sourceIdentity: MBStandardSourceIdentity
+                    let sourceID: String
+                    let detail: String?
+                    if let descriptionID = resolvedTheme.descriptionID {
+                        sourceIdentity = .pypThemeDescription(themeID: resolvedTheme.themeID, descriptionID: descriptionID)
+                        sourceID = descriptionID
+                        detail = resolvedTheme.themeTitle
+                    } else {
+                        sourceIdentity = .pypTheme(themeID: resolvedTheme.themeID)
+                        sourceID = resolvedTheme.themeID
+                        detail = resolvedTheme.description
                     }
 
                     return MBStandardReference(
@@ -160,13 +175,18 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                         unitID: reference.unitID,
                         unitTitle: reference.unitTitle,
                         programCode: reference.programCode,
-                        sourceID: reference.sourceID,
-                        code: resolvedTheme.name,
-                        title: resolvedTheme.name,
-                        detail: resolvedTheme.description,
+                        sourceID: sourceID,
+                        code: nil,
+                        title: resolvedTheme.title,
+                        detail: detail,
                         isUnresolvedTheme: false,
                         displayHashtag: reference.displayHashtag,
-                        stableIdentity: reference.stableIdentity
+                        sourceIdentity: sourceIdentity,
+                        stableIdentity: stableIdentity(
+                            classID: reference.classID,
+                            unitID: reference.unitID,
+                            sourceIdentity: sourceIdentity
+                        )
                     )
                 }
 
@@ -187,6 +207,7 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                     detail: reference.detail,
                     isUnresolvedTheme: reference.isUnresolvedTheme,
                     displayHashtag: normalizeHashtag(referenceHashtag),
+                    sourceIdentity: reference.sourceIdentity,
                     stableIdentity: reference.stableIdentity
                 )
                 return resolvedHashtags.isEmpty ? reference : resolvedReference
@@ -377,27 +398,46 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
     private func loadPYPThemes(for context: MBSessionContext) async -> PYPThemesLoadResult {
         do {
             let themes = try await client.loadSchoolThemes(in: context)
-            var themesByID: [String: MBTRTheme] = [:]
+            var themesByID: [String: PYPThemeResolution] = [:]
+            var themesByNormalizedName: [String: PYPThemeResolution] = [:]
+            var themeDescriptionsByParentAndName: [String: PYPThemeResolution] = [:]
             for theme in themes {
-                themesByID[theme.id] = theme
-                for description in theme.descriptions where themesByID[description.id] == nil {
-                    themesByID[description.id] = MBTRTheme(
-                        id: description.id,
-                        name: theme.name,
-                        description: description.name,
-                        order: theme.order,
-                        descriptions: [description]
+                let themeResolution = PYPThemeResolution(
+                    themeID: theme.id,
+                    descriptionID: nil,
+                    title: theme.name,
+                    themeTitle: theme.name,
+                    description: theme.description
+                )
+                themesByID[theme.id] = themeResolution
+                themesByNormalizedName[MBStandardsProgramDetector.normalizedValue(theme.name)] = themeResolution
+                for description in theme.descriptions {
+                    let descriptionResolution = PYPThemeResolution(
+                        themeID: theme.id,
+                        descriptionID: description.id,
+                        title: description.name,
+                        themeTitle: theme.name,
+                        description: description.label
                     )
+                    themesByID[description.id] = descriptionResolution
+                    themesByNormalizedName[MBStandardsProgramDetector.normalizedValue(description.name)] = descriptionResolution
+                    themeDescriptionsByParentAndName[
+                        Self.themeDescriptionKey(parentTitle: theme.name, descriptionTitle: description.name)
+                    ] = descriptionResolution
                 }
             }
 
             return PYPThemesLoadResult(
                 themesByID: themesByID,
+                themesByNormalizedName: themesByNormalizedName,
+                themeDescriptionsByParentAndName: themeDescriptionsByParentAndName,
                 error: nil
             )
         } catch {
             return PYPThemesLoadResult(
                 themesByID: [:],
+                themesByNormalizedName: [:],
+                themeDescriptionsByParentAndName: [:],
                 error: MBStandardsUnitFailure(
                     unitID: "school-theme",
                     unitTitle: "PYP themes",
@@ -456,9 +496,15 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
             }
         )
 
+        let namedThemeIDs = Set(components.namedPYPThemes.map(\.sourceID))
+        let unresolvedThemeReferences = components.pypThemeReferences.filter { themeReference in
+            namedThemeIDs.contains(themeReference.id) == false
+        }
+
         references.append(
-            contentsOf: components.pypThemeReferences.map { themeReference in
-                MBStandardReference(
+            contentsOf: unresolvedThemeReferences.map { themeReference in
+                let sourceIdentity = sourceIdentity(kind: .pypTheme, unitID: unit.id, sourceID: themeReference.id)
+                return MBStandardReference(
                     kind: .pypTheme,
                     classID: unit.classID,
                     unitID: unit.id,
@@ -470,7 +516,23 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                     detail: nil,
                     isUnresolvedTheme: true,
                     displayHashtag: "#Ref\(themeReference.id.prefix(6))",
-                    stableIdentity: stableIdentity(classID: unit.classID, unitID: unit.id, kind: .pypTheme, sourceID: themeReference.id)
+                    sourceIdentity: sourceIdentity,
+                    stableIdentity: stableIdentity(classID: unit.classID, unitID: unit.id, sourceIdentity: sourceIdentity)
+                )
+            }
+        )
+
+        references.append(
+            contentsOf: components.namedPYPThemes.map { theme in
+                mapStandardReference(
+                    kind: .pypTheme,
+                    unit: unit,
+                    sourceID: theme.sourceID,
+                    title: theme.title,
+                    code: nil,
+                    detail: theme.parentTitle,
+                    programCode: classProgramCode,
+                    isUnresolvedTheme: true
                 )
             }
         )
@@ -485,9 +547,11 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
         title: String,
         code: String?,
         detail: String?,
-        programCode: String?
+        programCode: String?,
+        isUnresolvedTheme: Bool = false
     ) -> MBStandardReference {
-        MBStandardReference(
+        let sourceIdentity = sourceIdentity(kind: kind, unitID: unit.id, sourceID: sourceID)
+        return MBStandardReference(
             kind: kind,
             classID: unit.classID,
             unitID: unit.id,
@@ -497,14 +561,50 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
             code: code,
             title: title,
             detail: detail,
-            isUnresolvedTheme: false,
+            isUnresolvedTheme: isUnresolvedTheme,
             displayHashtag: "#Ref\(sourceID.prefix(6))",
-            stableIdentity: stableIdentity(classID: unit.classID, unitID: unit.id, kind: kind, sourceID: sourceID)
+            sourceIdentity: sourceIdentity,
+            stableIdentity: stableIdentity(classID: unit.classID, unitID: unit.id, sourceIdentity: sourceIdentity)
         )
     }
 
-    private func stableIdentity(classID: String, unitID: String, kind: MBStandardReference.Kind, sourceID: String) -> String {
-        "\(classID)|\(unitID)|\(kind.rawValue)|\(sourceID)"
+    private func sourceIdentity(
+        kind: MBStandardReference.Kind,
+        unitID: String,
+        sourceID: String
+    ) -> MBStandardSourceIdentity {
+        if isGeneratedLocalReferenceID(sourceID) {
+            return .unresolved(kind: kind.rawValue, generatedID: sourceID)
+        }
+
+        switch kind {
+        case .standard:
+            return .standard(unitID: unitID, standardID: sourceID)
+        case .syllabus:
+            return .syllabus(unitID: unitID, syllabusID: sourceID)
+        case .scopeSequence:
+            return .scopeSequence(unitID: unitID, expectationID: sourceID)
+        case .pypTheme:
+            return .pypTheme(themeID: sourceID)
+        }
+    }
+
+    private func stableIdentity(classID: String, unitID: String, sourceIdentity: MBStandardSourceIdentity) -> String {
+        "\(classID)|\(unitID)|\(sourceIdentity.stableKey)"
+    }
+
+    private func isGeneratedLocalReferenceID(_ sourceID: String) -> Bool {
+        [
+            "standard-",
+            "key-concept-",
+            "atl-",
+            "learner-profile-",
+            "theme-"
+        ].contains { sourceID.hasPrefix($0) }
+    }
+
+    private static func themeDescriptionKey(parentTitle: String, descriptionTitle: String) -> String {
+        "\(MBStandardsProgramDetector.normalizedValue(parentTitle))|\(MBStandardsProgramDetector.normalizedValue(descriptionTitle))"
     }
 
     private func unresolvedThemeTitle(_ themeID: String) -> String {
@@ -599,8 +699,45 @@ extension MBStandardsLoadingServiceImpl {
     }
 
     struct PYPThemesLoadResult: Sendable {
-        let themesByID: [String: MBTRTheme]
+        let themesByID: [String: PYPThemeResolution]
+        let themesByNormalizedName: [String: PYPThemeResolution]
+        let themeDescriptionsByParentAndName: [String: PYPThemeResolution]
         let error: MBStandardsUnitFailure?
+
+        func theme(for reference: MBStandardReference) -> PYPThemeResolution? {
+            if let theme = themesByID[reference.sourceID] {
+                return theme
+            }
+
+            if let parentTitle = reference.detail {
+                let parentAndDescriptionKey = MBStandardsLoadingServiceImpl.themeDescriptionKey(
+                    parentTitle: parentTitle,
+                    descriptionTitle: reference.title
+                )
+                if let theme = themeDescriptionsByParentAndName[parentAndDescriptionKey] {
+                    return theme
+                }
+            }
+
+            let normalizedTitle = MBStandardsProgramDetector.normalizedValue(reference.title)
+            if let theme = themesByNormalizedName[normalizedTitle] {
+                return theme
+            }
+
+            if let code = reference.code {
+                return themesByNormalizedName[MBStandardsProgramDetector.normalizedValue(code)]
+            }
+
+            return nil
+        }
+    }
+
+    struct PYPThemeResolution: Sendable {
+        let themeID: String
+        let descriptionID: String?
+        let title: String
+        let themeTitle: String
+        let description: String?
     }
 
     static func preview(filePath: String = #filePath) -> MBStandardsLoadingServiceImpl {

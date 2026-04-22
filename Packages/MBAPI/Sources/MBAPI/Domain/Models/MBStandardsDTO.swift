@@ -5,20 +5,24 @@ public struct MBUnitComponents: Decodable, Equatable, Sendable {
     public let syllabusItems: [MBSyllabusItem]
     public let scopeSequences: [MBScopeSequence]
     public let pypThemeReferences: [MBTRThemeReference]
+    public let namedPYPThemes: [NamedPYPTheme]
 
     public init(
         standards: [MBUnitStandard] = [],
         syllabusItems: [MBSyllabusItem] = [],
         scopeSequences: [MBScopeSequence] = [],
-        pypThemeReferences: [MBTRThemeReference] = []
+        pypThemeReferences: [MBTRThemeReference] = [],
+        namedPYPThemes: [NamedPYPTheme] = []
     ) {
         self.standards = standards
         self.syllabusItems = syllabusItems
         self.scopeSequences = scopeSequences
         self.pypThemeReferences = pypThemeReferences
+        self.namedPYPThemes = namedPYPThemes
     }
 
     private enum CodingKeys: String, CodingKey {
+        case items
         case standards
         case syllabusItems = "syllabus_items"
         case syllabusItemsLegacy = "syllabusItems"
@@ -31,17 +35,336 @@ public struct MBUnitComponents: Decodable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        standards = try container.decodeIfPresent([MBUnitStandard].self, forKey: .standards) ?? []
-        syllabusItems = (try? container.decodeIfPresent([MBSyllabusItem].self, forKey: .syllabusItems))
+        var decodedStandards = try container.decodeIfPresent([MBUnitStandard].self, forKey: .standards) ?? []
+        var decodedSyllabusItems = (try? container.decodeIfPresent([MBSyllabusItem].self, forKey: .syllabusItems))
             ?? (try? container.decodeIfPresent([MBSyllabusItem].self, forKey: .syllabusItemsLegacy))
             ?? []
-        scopeSequences = (try? container.decodeIfPresent([MBScopeSequence].self, forKey: .scopeSequences))
+        var decodedScopeSequences = (try? container.decodeIfPresent([MBScopeSequence].self, forKey: .scopeSequences))
             ?? (try? container.decodeIfPresent([MBScopeSequence].self, forKey: .scopeSequencesLegacy))
             ?? []
-        pypThemeReferences = (try? container.decodeIfPresent([MBTRThemeReference].self, forKey: .trThemes))
+        var decodedThemeReferences = (try? container.decodeIfPresent([MBTRThemeReference].self, forKey: .trThemes))
             ?? (try? container.decodeIfPresent([MBTRThemeReference].self, forKey: .pypThemes))
             ?? (try? container.decodeIfPresent([MBTRThemeReference].self, forKey: .themeReferences))
             ?? []
+        var decodedNamedThemes: [NamedPYPTheme] = []
+
+        if let componentItems = try? container.decodeIfPresent([UnitComponentPayload].self, forKey: .items) {
+            let normalized = Self.normalizeComponentPayloads(componentItems)
+            decodedStandards += normalized.standards
+            decodedSyllabusItems += normalized.syllabusItems
+            decodedScopeSequences += normalized.scopeSequences
+            decodedThemeReferences += normalized.pypThemes
+            decodedNamedThemes += normalized.namedPYPThemes
+        }
+
+        self.standards = Self.deduplicatedByID(decodedStandards)
+        self.syllabusItems = Self.deduplicatedByID(decodedSyllabusItems)
+        self.scopeSequences = Self.deduplicatedByID(decodedScopeSequences)
+        self.pypThemeReferences = Self.deduplicatedByID(decodedThemeReferences)
+        self.namedPYPThemes = Self.deduplicatedByID(decodedNamedThemes)
+    }
+
+    private static func normalizeComponentPayloads(_ componentPayloads: [UnitComponentPayload]) -> NormalizedComponents {
+        var normalized = NormalizedComponents()
+
+        for payload in componentPayloads {
+            let componentName = Self.normalizedComponentName(payload.name)
+
+            guard let data = payload.data else {
+                continue
+            }
+
+            switch componentName {
+            case "standards":
+                if let itemStandards = data.standards {
+                    normalized.standards.append(contentsOf: itemStandards)
+                }
+                normalized.standards.append(
+                    contentsOf: Self.standardReferences(from: data.standardTextValues, namespace: "standard")
+                )
+            case "syllabus", "syllabus_items", "syllabuses":
+                if let items = data.syllabusItems {
+                    normalized.syllabusItems.append(contentsOf: items)
+                }
+            case "scope_sequence", "scope_sequences", "scope", "scope-sequences":
+                if let items = data.scopeSequences {
+                    normalized.scopeSequences.append(contentsOf: items)
+                }
+            case "tr_theme", "tr_themes", "pyp_theme", "pyp_themes":
+                let namedThemes = data.themeNames
+                    .map { name in
+                        Self.normalizedThemeItem(from: name, parentTitle: data.themeTitle)
+                    }
+
+                normalized.pypThemes.append(contentsOf: namedThemes.map { MBTRThemeReference(id: $0.sourceID) })
+                normalized.namedPYPThemes.append(contentsOf: namedThemes)
+            case "key_concepts", "unit_key_concepts":
+                let keyConceptItems = data.keyConcepts + data.unitKeyConcepts
+                normalized.standards.append(
+                    contentsOf: Self.standardReferences(from: keyConceptItems, namespace: "key-concept")
+                )
+            case "approaches_to_learning", "atl", "atls":
+                normalized.standards.append(
+                    contentsOf: Self.standardReferences(from: data.atlSkills, namespace: "atl")
+                )
+            case "dispositions", "learner_profiles":
+                normalized.standards.append(
+                    contentsOf: Self.standardReferences(from: data.learnerProfiles, namespace: "learner-profile")
+                )
+            default:
+                continue
+            }
+        }
+
+        return normalized
+    }
+
+    private static func normalizedComponentName(_ name: String?) -> String {
+        let normalized = (name ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let withoutPrefix = normalized.replacingOccurrences(of: "unit::component::", with: "")
+        return withoutPrefix.replacingOccurrences(of: "-", with: "_")
+    }
+
+    private static func standardReferences(
+        from textValues: [String],
+        namespace: String,
+        startIndex: Int = 0
+    ) -> [MBUnitStandard] {
+        textValues.enumerated().map { (offset, value) in
+            MBUnitStandard(
+                id: "\(namespace)-\(Self.stableID(for: value, namespace: namespace))-\(startIndex + offset)",
+                title: value
+            )
+        }
+        .filter { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
+    }
+
+    private static func normalizedThemeItem(from title: String, parentTitle: String?) -> NamedPYPTheme {
+        let sourceID = "theme-\(stableID(for: title, namespace: "theme"))"
+        return NamedPYPTheme(sourceID: sourceID, title: title, parentTitle: parentTitle, isGenerated: true)
+    }
+
+    private static func stableID(for text: String, namespace: String) -> String {
+        var hash = UInt64(1469598103934665603)
+        for byte in "\(namespace)::\(text)".utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+
+        let compact = String(hash, radix: 16, uppercase: false)
+        return String(compact.prefix(10))
+    }
+
+    private static func deduplicatedByID(_ values: [MBUnitStandard]) -> [MBUnitStandard] {
+        var seen: Set<String> = []
+        return values.filter {
+            let key = $0.id
+            guard seen.insert(key).inserted else {
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private static func deduplicatedByID(_ values: [MBSyllabusItem]) -> [MBSyllabusItem] {
+        var seen: Set<String> = []
+        return values.filter {
+            guard seen.insert($0.id).inserted else {
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private static func deduplicatedByID(_ values: [MBScopeSequence]) -> [MBScopeSequence] {
+        var seen: Set<String> = []
+        return values.filter {
+            guard seen.insert($0.id).inserted else {
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private static func deduplicatedByID(_ values: [MBTRThemeReference]) -> [MBTRThemeReference] {
+        var seen: Set<String> = []
+        return values.filter {
+            guard seen.insert($0.id).inserted else {
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private static func deduplicatedByID(_ values: [NamedPYPTheme]) -> [NamedPYPTheme] {
+        var seen: Set<String> = []
+        return values.filter {
+            guard seen.insert($0.sourceID).inserted else {
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private struct NormalizedComponents: Sendable {
+        var standards: [MBUnitStandard] = []
+        var syllabusItems: [MBSyllabusItem] = []
+        var scopeSequences: [MBScopeSequence] = []
+        var pypThemes: [MBTRThemeReference] = []
+        var namedPYPThemes: [NamedPYPTheme] = []
+    }
+
+    private struct UnitComponentPayload: Decodable, Sendable {
+        let name: String?
+        let data: UnitComponentData?
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case data
+        }
+    }
+
+    private struct UnitComponentData: Decodable, Sendable {
+        let standards: [MBUnitStandard]?
+        let standardTextValues: [String]
+        let syllabusItems: [MBSyllabusItem]?
+        let scopeSequences: [MBScopeSequence]?
+        let themeTitle: String?
+        let themeNames: [String]
+        let keyConcepts: [String]
+        let unitKeyConcepts: [String]
+        let atlSkills: [String]
+        let learnerProfiles: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case standards
+            case standardTextValues = "standards_text"
+            case syllabusItems = "syllabus_items"
+            case syllabusItemsLegacy = "syllabusItems"
+            case scopeSequences = "scope_sequences"
+            case themeTitle = "title"
+            case themeNames = "list"
+            case keyConcepts = "key_concepts"
+            case unitKeyConcepts = "unit_key_concepts"
+            case atlSkills = "atls"
+            case learnerProfiles = "learner_profiles"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            standards = try container.decodeIfPresent([MBUnitStandard].self, forKey: .standards)
+
+            standardTextValues = (try? container.decodeIfPresent([String].self, forKey: .standardTextValues))
+                ?? []
+
+            syllabusItems = (try? container.decodeIfPresent([MBSyllabusItem].self, forKey: .syllabusItems))
+                ?? (try? container.decodeIfPresent([MBSyllabusItem].self, forKey: .syllabusItemsLegacy))
+                ?? []
+
+            scopeSequences = (try? container.decodeIfPresent([MBScopeSequence].self, forKey: .scopeSequences))
+                ?? []
+
+            themeTitle = try? container.decodeIfPresent(String.self, forKey: .themeTitle)
+            let directThemeNames = (try? container.decodeIfPresent([String].self, forKey: .themeNames)) ?? []
+            let objectThemeNames = (try? container.decodeIfPresent([UnitNamedValue].self, forKey: .themeNames)) ?? []
+            themeNames = directThemeNames + objectThemeNames.map(\.name)
+            keyConcepts = (try? container.decodeIfPresent([String].self, forKey: .keyConcepts)) ?? []
+            unitKeyConcepts = (try? container.decodeIfPresent([String].self, forKey: .unitKeyConcepts)) ?? []
+            atlSkills = (try? container.decodeIfPresent([String].self, forKey: .atlSkills)) ?? []
+            learnerProfiles = (try? container.decodeIfPresent([String].self, forKey: .learnerProfiles)) ?? []
+        }
+
+        private struct UnitNamedValue: Decodable, Sendable {
+            let name: String
+
+            private enum CodingKeys: String, CodingKey {
+                case name
+                case title
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                if let nameValue = try? container.decode(String.self, forKey: .name) {
+                    name = nameValue
+                    return
+                }
+
+                if let titleValue = try? container.decode(String.self, forKey: .title) {
+                    name = titleValue
+                    return
+                }
+
+                throw DecodingError.dataCorruptedError(
+                    forKey: .name,
+                    in: container,
+                    debugDescription: "Expected a theme name field."
+                )
+            }
+        }
+    }
+}
+
+public struct NamedPYPTheme: Decodable, Equatable, Sendable {
+    public let sourceID: String
+    public let title: String
+    public let parentTitle: String?
+    public let isGenerated: Bool
+
+    public init(sourceID: String, title: String, parentTitle: String? = nil, isGenerated: Bool = false) {
+        self.sourceID = sourceID
+        self.title = title
+        self.parentTitle = parentTitle
+        self.isGenerated = isGenerated
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceID
+        case sourceId
+        case id
+        case title
+        case name
+        case parentTitle
+        case parent_title
+        case isGenerated
+        case is_generated
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        if let sourceIDValue = try? container.decode(String.self, forKey: .sourceID) {
+            sourceID = sourceIDValue
+        } else if let sourceIDValue = try? container.decode(String.self, forKey: .sourceId) {
+            sourceID = sourceIDValue
+        } else {
+            sourceID = try MBModelCoding.decodeStringID(from: container, forKey: .id)
+        }
+
+        if let titleValue = try? container.decode(String.self, forKey: .title) {
+            title = titleValue
+        } else if let nameValue = try? container.decode(String.self, forKey: .name) {
+            title = nameValue
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .title,
+                in: container,
+                debugDescription: "Expected a title/name for named PYP theme."
+            )
+        }
+
+        parentTitle = (try? container.decodeIfPresent(String.self, forKey: .parentTitle))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .parent_title))
+        isGenerated = (try? container.decodeIfPresent(Bool.self, forKey: .isGenerated))
+            ?? (try? container.decodeIfPresent(Bool.self, forKey: .is_generated))
+            ?? false
     }
 }
 

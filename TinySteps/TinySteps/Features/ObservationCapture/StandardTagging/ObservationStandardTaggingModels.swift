@@ -19,6 +19,7 @@ struct ObservationStandardTagCandidate: Sendable {
     let title: String
     let detail: String?
     let displayHashtag: String
+    let sourceIdentity: MBStandardSourceIdentity
     let stableIdentity: String?
 }
 
@@ -35,6 +36,7 @@ struct ObservationStandardTagSuggestion: Codable, Equatable, Sendable, Identifia
     let title: String
     let detail: String?
     let displayHashtag: String
+    let sourceIdentity: MBStandardSourceIdentity
     var evidenceQuotes: [String]
     let selectionSource: ObservationStandardTaggingSelectionSource
 
@@ -50,6 +52,7 @@ struct ObservationStandardTagSuggestion: Codable, Equatable, Sendable, Identifia
         title: String,
         detail: String?,
         displayHashtag: String,
+        sourceIdentity: MBStandardSourceIdentity? = nil,
         evidenceQuotes: [String],
         selectionSource: ObservationStandardTaggingSelectionSource
     ) {
@@ -64,6 +67,7 @@ struct ObservationStandardTagSuggestion: Codable, Equatable, Sendable, Identifia
         self.title = title
         self.detail = detail
         self.displayHashtag = displayHashtag
+        self.sourceIdentity = sourceIdentity ?? Self.inferredSourceIdentity(kind: kind, unitID: unitID, sourceID: sourceID)
         self.evidenceQuotes = evidenceQuotes
         self.selectionSource = selectionSource
     }
@@ -80,6 +84,7 @@ struct ObservationStandardTagSuggestion: Codable, Equatable, Sendable, Identifia
         self.title = reference.title
         self.detail = reference.detail
         self.displayHashtag = reference.displayHashtag
+        self.sourceIdentity = reference.sourceIdentity
         self.evidenceQuotes = evidenceQuotes
         self.selectionSource = selectionSource
     }
@@ -97,9 +102,81 @@ struct ObservationStandardTagSuggestion: Codable, Equatable, Sendable, Identifia
             title: candidate.title,
             detail: candidate.detail,
             displayHashtag: candidate.displayHashtag,
+            sourceIdentity: candidate.sourceIdentity,
             evidenceQuotes: evidenceQuotes,
             selectionSource: source
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case referenceID
+        case sourceID
+        case kind
+        case classID
+        case unitID
+        case unitTitle
+        case programCode
+        case code
+        case title
+        case detail
+        case displayHashtag
+        case sourceIdentity
+        case evidenceQuotes
+        case selectionSource
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        referenceID = try container.decode(String.self, forKey: .referenceID)
+        sourceID = try container.decode(String.self, forKey: .sourceID)
+        kind = try container.decode(MBStandardReference.Kind.self, forKey: .kind)
+        classID = try container.decode(String.self, forKey: .classID)
+        unitID = try container.decode(String.self, forKey: .unitID)
+        unitTitle = try container.decode(String.self, forKey: .unitTitle)
+        programCode = try container.decodeIfPresent(String.self, forKey: .programCode)
+        code = try container.decodeIfPresent(String.self, forKey: .code)
+        title = try container.decode(String.self, forKey: .title)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        displayHashtag = try container.decode(String.self, forKey: .displayHashtag)
+        sourceIdentity = try container.decodeIfPresent(MBStandardSourceIdentity.self, forKey: .sourceIdentity)
+            ?? Self.inferredSourceIdentity(kind: kind, unitID: unitID, sourceID: sourceID)
+        evidenceQuotes = try container.decodeIfPresent([String].self, forKey: .evidenceQuotes) ?? []
+        selectionSource = try container.decode(ObservationStandardTaggingSelectionSource.self, forKey: .selectionSource)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(referenceID, forKey: .referenceID)
+        try container.encode(sourceID, forKey: .sourceID)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(classID, forKey: .classID)
+        try container.encode(unitID, forKey: .unitID)
+        try container.encode(unitTitle, forKey: .unitTitle)
+        try container.encodeIfPresent(programCode, forKey: .programCode)
+        try container.encodeIfPresent(code, forKey: .code)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(detail, forKey: .detail)
+        try container.encode(displayHashtag, forKey: .displayHashtag)
+        try container.encode(sourceIdentity, forKey: .sourceIdentity)
+        try container.encode(evidenceQuotes, forKey: .evidenceQuotes)
+        try container.encode(selectionSource, forKey: .selectionSource)
+    }
+
+    private static func inferredSourceIdentity(
+        kind: MBStandardReference.Kind,
+        unitID: String,
+        sourceID: String
+    ) -> MBStandardSourceIdentity {
+        switch kind {
+        case .standard:
+            return .standard(unitID: unitID, standardID: sourceID)
+        case .syllabus:
+            return .syllabus(unitID: unitID, syllabusID: sourceID)
+        case .scopeSequence:
+            return .scopeSequence(unitID: unitID, expectationID: sourceID)
+        case .pypTheme:
+            return .pypTheme(themeID: sourceID)
+        }
     }
 }
 

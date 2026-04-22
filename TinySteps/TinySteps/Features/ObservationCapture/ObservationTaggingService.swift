@@ -32,8 +32,35 @@ struct DisabledObservationTaggingService: ObservationTaggingService {
 }
 
 struct ObservationTaggingParser: Sendable {
+    private let minimumTranscriptTokenCount = 2
+
+    private func transcriptTokenSet(for text: String) -> Set<String> {
+        Set(
+            text
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .compactMap { token in
+                    let normalized = token
+                        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                        .lowercased()
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard normalized.isEmpty == false else { return nil }
+                    guard normalized.count >= 3 else { return nil }
+                    return normalized
+                }
+        )
+    }
+
     func parse(data: Data, transcript: String) throws -> ObservationTaggingResult {
         guard transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return ObservationTaggingResult(
+                tags: .empty,
+                confidence: 0,
+                evidenceSpans: [],
+                pendingRetag: true
+            )	
+        }
+
+        guard transcriptTokenSet(for: transcript).count >= minimumTranscriptTokenCount else {
             return ObservationTaggingResult(
                 tags: .empty,
                 confidence: 0,
@@ -112,11 +139,12 @@ struct ObservationTaggingParser: Sendable {
         _ evidence: EvidenceSpanResponse,
         transcript: String
     ) -> ObservationEvidenceSpan? {
+        let normalizedQuote = evidence.quote.trimmingCharacters(in: .whitespacesAndNewlines)
         guard
             let category = ObservationPYPTagCategory(modelValue: evidence.category),
             let value = canonicalValue(for: evidence.value, category: category),
-            evidence.quote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-            transcript.localizedCaseInsensitiveContains(evidence.quote),
+            normalizedQuote.isEmpty == false,
+            transcript.localizedCaseInsensitiveContains(normalizedQuote),
             hasValidOffsets(evidence, transcript: transcript)
         else {
             return nil
@@ -125,7 +153,7 @@ struct ObservationTaggingParser: Sendable {
         return ObservationEvidenceSpan(
             category: category,
             value: value,
-            quote: evidence.quote,
+            quote: normalizedQuote,
             start: evidence.start,
             end: evidence.end
         )

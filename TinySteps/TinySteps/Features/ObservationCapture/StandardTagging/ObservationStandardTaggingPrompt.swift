@@ -12,6 +12,15 @@ Rules:
 - Do not invent new IDs, hashtags, titles, or labels.
 - Do not return the same standard twice.
 - Skip any standard that is not explicitly evidenced by the transcript.
+- Return exactly this JSON shape:
+  {
+    "standardTagIDs": [ "<string>" ],
+    "confidence": <0-1 number>,
+    "evidenceSpans": [
+      { "standardID": "<string>", "quote": "<string>", "start": <optional int>, "end": <optional int> }
+    ]
+  }
+- Never return alternative field names such as `selectedStandards`.
 """
 
     struct ObservationStandardTaggingPayload: Codable, Sendable {
@@ -35,6 +44,7 @@ Rules:
             let id: String
             let kind: String
             let sourceID: String
+            let sourceIdentity: String
             let code: String?
             let hashtag: String
             let title: String
@@ -67,6 +77,7 @@ Rules:
                     id: candidate.id,
                     kind: candidate.kind.rawValue,
                     sourceID: candidate.sourceID,
+                    sourceIdentity: candidate.sourceIdentity.stableKey,
                     code: candidate.code,
                     hashtag: candidate.displayHashtag,
                     title: candidate.title,

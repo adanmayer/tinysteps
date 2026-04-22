@@ -106,6 +106,7 @@ struct SignedInRootView: View {
                             onClearCache: {
                                 await sessionModel.clearClassCacheAndReload()
                                 await standardsLoadingService.clearCache()
+                                URLCache.shared.removeAllCachedResponses()
                             },
                             observationSpeechTranscriber: observationSpeechTranscriber,
                             observationChildMatcher: observationChildMatcher,

@@ -1,9 +1,15 @@
 import Foundation
+import os
 
 struct StandardTaggingOllamaMessage: Sendable {
     let role: String
     let content: String
 }
+
+private let standardTaggingClientLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "TinySteps",
+    category: "StandardTaggingOllamaClient"
+)
 
 struct StandardTaggingOllamaOptions: Sendable {
     let temperature: Double
@@ -108,6 +114,13 @@ struct StandardTaggingOllamaClient {
             }
             do {
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                if let requestBody = request.httpBody.flatMap({ String(data: $0, encoding: .utf8) }) {
+                    standardTaggingClientLogger.debug("""
+                        Local AI stream request -> url=\(self.hostURL.absoluteString, privacy: .public), model=\(model, privacy: .public), stream=true, body=\(requestBody.debugSnippet(max: 5000), privacy: .public)
+                        """)
+                } else {
+                    standardTaggingClientLogger.debug("Local AI stream request could not serialize body for logging.")
+                }
             } catch {
                 continuation.finish(throwing: error)
                 return
@@ -169,6 +182,13 @@ struct StandardTaggingOllamaClient {
         }
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            if let requestBody = request.httpBody.flatMap({ String(data: $0, encoding: .utf8) }) {
+                standardTaggingClientLogger.debug("""
+                    Local AI request -> url=\(self.hostURL.absoluteString, privacy: .public), model=\(model, privacy: .public), stream=false, body=\(requestBody.debugSnippet(max: 5000), privacy: .public)
+                    """)
+            } else {
+                standardTaggingClientLogger.debug("Local AI request could not serialize body for logging.")
+            }
         } catch {
             throw error
         }
@@ -206,6 +226,16 @@ private struct StandardTaggingOllamaStreamChunk: Decodable, Sendable {
 
     struct Message: Decodable, Sendable {
         let content: String?
+    }
+}
+
+private extension String {
+    func debugSnippet(max: Int) -> String {
+        if count <= max {
+            return self
+        }
+        let endIndex = index(startIndex, offsetBy: max)
+        return String(self[startIndex..<endIndex]) + "…"
     }
 }
 

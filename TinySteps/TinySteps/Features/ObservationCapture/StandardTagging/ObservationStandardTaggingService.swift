@@ -1,25 +1,27 @@
 import Foundation
+import os
 
 enum ObservationStandardTaggingServiceError: Error {
     case noCandidates
 }
 
+private let standardTaggingLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "TinySteps",
+    category: "ObservationStandardTagging"
+)
+
 struct DisabledObservationStandardTaggingService: ObservationStandardTaggingService {
     func suggestStandardTags(
         request: ObservationStandardTaggingRequest
     ) -> AsyncThrowingStream<ObservationStandardTaggingEvent, Error> {
-        AsyncThrowingStream(
+        standardTaggingLogger.warning(
+            "Standard tagging disabled. Falling back to manual tagging for classID=\(request.classID, privacy: .public), unitID=\(request.selectedUnitID, privacy: .public)"
+        )
+
+        return AsyncThrowingStream(
             bufferingPolicy: .unbounded
         ) { continuation in
-            if request.candidates.isEmpty {
-                continuation.yield(.unavailable)
-            } else {
-                continuation.yield(.suggestions(ObservationStandardTaggingResult(
-                    suggestions: [],
-                    confidence: 0,
-                    pendingRetag: true
-                )))
-            }
+            continuation.yield(ObservationStandardTaggingEvent.unavailable)
             continuation.finish()
         }
     }
@@ -48,6 +50,7 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
             Task {
                 do {
                     if request.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        standardTaggingLogger.debug("Skipping standard tagging: transcript empty.")
                         continuation.yield(.suggestions(
                             ObservationStandardTaggingResult(
                                 suggestions: [],
@@ -60,7 +63,8 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
                     }
 
                     if request.candidates.isEmpty {
-                        continuation.yield(.unavailable)
+                        standardTaggingLogger.info("Standard tagging unavailable for classID=\(request.classID, privacy: .public), unitID=\(request.selectedUnitID, privacy: .public): no candidates.")
+                        continuation.yield(ObservationStandardTaggingEvent.unavailable)
                         continuation.finish()
                         return
                     }
@@ -85,6 +89,7 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
                                 id: $0.id,
                                 kind: $0.kind.rawValue,
                                 sourceID: $0.sourceID,
+                                sourceIdentity: $0.sourceIdentity.stableKey,
                                 code: $0.code,
                                 hashtag: $0.displayHashtag,
                                 title: $0.title,
@@ -103,6 +108,7 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
                         template: payloadTemplate,
                         transcript: request.transcript
                     ) else {
+                        standardTaggingLogger.error("Standard tagging payload serialization failed for classID=\(request.classID, privacy: .public), unitID=\(request.selectedUnitID, privacy: .public).")
                         continuation.finish(throwing: StandardTaggingOllamaError.invalidResponse(statusCode: -1, body: "Cannot build payload"))
                         return
                     }
@@ -139,10 +145,12 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
                     continuation.yield(.suggestions(parsed))
                     continuation.finish()
                 } catch {
-                    if isAvailabilityError(error) {
-                        continuation.yield(.unavailable)
+                    if isAvailabilityError(error) || isRecoverableModelError(error) {
+                        standardTaggingLogger.error("Standard tagging service availability error for classID=\(request.classID, privacy: .public), unitID=\(request.selectedUnitID, privacy: .public).")
+                        continuation.yield(ObservationStandardTaggingEvent.unavailable)
                         continuation.finish()
                     } else {
+                        standardTaggingLogger.error("Standard tagging failed with non-recoverable error for classID=\(request.classID, privacy: .public), unitID=\(request.selectedUnitID, privacy: .public): \(error.localizedDescription, privacy: .public)")
                         continuation.finish(throwing: error)
                     }
                 }
@@ -168,6 +176,23 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
         default:
             return false
         }
+    }
+
+    private func isRecoverableModelError(_ error: Error) -> Bool {
+        if error is ObservationStandardTaggingParserError {
+            return true
+        }
+        if case StandardTaggingOllamaError.decodingFailed = error {
+            return true
+        }
+        if case StandardTaggingOllamaError.invalidResponse(_, _) = error {
+            return true
+        }
+        if case StandardTaggingOllamaError.transport = error {
+            return true
+        }
+
+        return false
     }
 }
 

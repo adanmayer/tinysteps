@@ -12,6 +12,15 @@ struct ObservationCaptureView: View {
     @State private var selectedEvidence: ObservationEvidenceSpan?
     @State private var selectedStandardTag: ObservationStandardTagSuggestion?
     @State private var pulse = false
+    @FocusState private var isTranscriptFocused: Bool
+
+    private var canSendTranscript: Bool {
+        model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+        model.isSuggestingTags == false &&
+        model.isRecording == false &&
+        model.state != .requestingPermission &&
+        model.state != .transcribing
+    }
 
     private let onDismiss: () -> Void
     private let session: AuthSession
@@ -241,7 +250,7 @@ struct ObservationCaptureView: View {
 
     private var quickFillTextButton: some View {
         Button("Insert sample text") {
-            model.updateTranscript("Bryan is drawing a wonderful picture and is very happy with it.")
+            model.updateTranscript("Mia described how the classroom jobs work together, explaining that the line leader, materials helper, and table captains each have different responsibilities.")
             model.suggestTagsForCurrentTranscript()
         }
         .font(.caption.weight(.medium))
@@ -274,12 +283,24 @@ struct ObservationCaptureView: View {
                     set: { model.updateTranscript($0) }
                 )
             )
+            .focused($isTranscriptFocused)
             .font(.body)
             .foregroundStyle(Color(hex: "#3A342E"))
             .scrollContentBackground(.hidden)
             .padding(12)
             .frame(minHeight: 148)
             .accessibilityLabel("Observation transcript")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+
+                    Button("Send") {
+                        isTranscriptFocused = false
+                        model.suggestTagsForCurrentTranscript()
+                    }
+                    .disabled(canSendTranscript == false)
+                }
+            }
 
             if model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Your words will appear here...")
@@ -370,26 +391,16 @@ struct ObservationCaptureView: View {
             }
 
             if model.standardTagSuggestions.isEmpty {
-                if model.standardTagPreviewHashtags.isEmpty {
+                if model.standardTagPickerCandidates.isEmpty {
                     Text("No standards available for this unit yet.")
                         .font(.caption)
                         .foregroundStyle(Color(hex: "#A89E8F"))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
-                        alignment: .leading,
-                        spacing: 8
-                    ) {
-                        ForEach(model.standardTagPreviewHashtags, id: \.self) { hashtag in
-                            ObservationTagChip(
-                                text: hashtag,
-                                isSkeleton: true,
-                                onTap: nil,
-                                onRemove: nil
-                            )
-                        }
-                    }
+                    Text("No standards selected yet.")
+                        .font(.caption)
+                        .foregroundStyle(Color(hex: "#A89E8F"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 LazyVGrid(
@@ -438,66 +449,48 @@ struct ObservationCaptureView: View {
     }
 
     private var chipBloomSection: some View {
-        VStack(spacing: 10) {
-            Text("Chips bloom when you speak")
-                .font(.caption)
-                .foregroundStyle(Color(hex: "#6E6456"))
+        Group {
+            if hasPYPTagValues {
+                VStack(spacing: 10) {
+                    Text("Chips bloom when you speak")
+                        .font(.caption)
+                        .foregroundStyle(Color(hex: "#6E6456"))
 
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
-                spacing: 8
-            ) {
-                tagGroup(category: .transdisciplinaryTheme, values: themeValues, fallbackValues: unitThemeValues)
-                tagGroup(category: .keyConcept, values: conceptValues, fallbackValues: unitConceptValues)
-                tagGroup(category: .atlSkill, values: atlValues, fallbackValues: unitAtlValues)
-                tagGroup(category: .learnerProfile, values: profileValues, fallbackValues: unitProfileValues)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
+                        spacing: 8
+                    ) {
+                        tagGroup(category: .transdisciplinaryTheme, values: themeValues)
+                        tagGroup(category: .keyConcept, values: conceptValues)
+                        tagGroup(category: .atlSkill, values: atlValues)
+                        tagGroup(category: .learnerProfile, values: profileValues)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Suggested PYP tags")
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Suggested PYP tags")
     }
 
     @ViewBuilder
     private func tagGroup(
         category: ObservationPYPTagCategory,
-        values: [String],
-        fallbackValues: [String]
+        values: [String]
     ) -> some View {
-        if values.isEmpty {
-            if fallbackValues.isEmpty {
-                ObservationTagChip(
-                    text: "\(category.displayTitle): -",
-                    isSkeleton: true,
-                    onTap: nil,
-                    onRemove: nil
-                )
-                .opacity(model.isRecording || model.isSuggestingTags ? 0.35 : 0.28)
-            } else {
-                ForEach(fallbackValues, id: \.self) { value in
-                    ObservationTagChip(
-                        text: "\(category.displayTitle): \(value)",
-                        isSkeleton: true,
-                        onTap: nil,
-                        onRemove: nil
-                    )
-                }
-            }
-        } else {
-            ForEach(values, id: \.self) { value in
-                ObservationTagChip(
-                    text: "\(category.displayTitle): \(value)",
-                    isSkeleton: false,
-                    onTap: {
-                        selectedEvidence = model.evidence(for: category, value: value)
-                    },
-                    onRemove: {
-                        if selectedEvidence?.category == category && selectedEvidence?.value == value {
-                            selectedEvidence = nil
-                        }
-                        model.removeTag(category: category, value: value)
+        ForEach(values, id: \.self) { value in
+            ObservationTagChip(
+                text: "\(category.displayTitle): \(value)",
+                isSkeleton: false,
+                onTap: {
+                    selectedEvidence = model.evidence(for: category, value: value)
+                },
+                onRemove: {
+                    if selectedEvidence?.category == category && selectedEvidence?.value == value {
+                        selectedEvidence = nil
                     }
-                )
-            }
+                    model.removeTag(category: category, value: value)
+                }
+            )
         }
     }
 
@@ -695,24 +688,11 @@ struct ObservationCaptureView: View {
         )
     }
 
-    private var unitThemeValues: [String] {
-        model.hashtagValues(for: .transdisciplinaryTheme)
-    }
-
-    private var unitConceptValues: [String] {
-        model.hashtagValues(for: .keyConcept)
-    }
-
-    private var unitAtlValues: [String] {
-        model.hashtagValues(for: .atlSkill)
-    }
-
-    private var unitProfileValues: [String] {
-        model.hashtagValues(for: .learnerProfile)
-    }
-
-    private var standardTagPreviewHashtags: [String] {
-        model.standardTagPreviewHashtags
+    private var hasPYPTagValues: Bool {
+        themeValues.isEmpty == false ||
+        conceptValues.isEmpty == false ||
+        atlValues.isEmpty == false ||
+        profileValues.isEmpty == false
     }
 
     private func tagsToStrings<T: RawRepresentable>(_ values: [T]) -> [String] where T.RawValue == String {
