@@ -133,8 +133,27 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
                     )
 
                     var accumulator = Data()
+                    var lastPartialSuggestionIDs: [String] = []
                     for try await chunk in stream {
                         accumulator.append(chunk)
+
+                        let partialIDs = parser.parseVisibleSuggestionIDs(
+                            from: accumulator,
+                            transcript: request.transcript,
+                            candidatesByID: request.candidateLookup
+                        ).filter {
+                            request.excludedSuggestionIDs.contains($0) == false
+                        }
+
+                        guard partialIDs == lastPartialSuggestionIDs else {
+                            lastPartialSuggestionIDs = partialIDs
+                            let partialSuggestions = makePartialSuggestions(
+                                from: partialIDs,
+                                candidatesByID: request.candidateLookup
+                            )
+                            continuation.yield(ObservationStandardTaggingEvent.partial(partialSuggestions))
+                            continue
+                        }
                     }
 
                     let parsed = try parser.parse(
@@ -156,6 +175,37 @@ struct OllamaObservationStandardTaggingService: ObservationStandardTaggingServic
                 }
             }
         }
+    }
+
+    private func makePartialSuggestions(
+        from suggestionIDs: [String],
+        candidatesByID: [String: MBStandardReference]
+    ) -> [ObservationStandardTagSuggestion] {
+        var suggestions: [ObservationStandardTagSuggestion] = []
+        var seen: Set<String> = []
+
+        for suggestionID in suggestionIDs {
+            guard seen.insert(suggestionID).inserted else {
+                continue
+            }
+            guard let reference = candidatesByID[suggestionID] else {
+                continue
+            }
+
+            suggestions.append(
+                ObservationStandardTagSuggestion(
+                    reference: reference,
+                    selectionSource: .localAI,
+                    evidenceQuotes: []
+                )
+            )
+
+            if suggestions.count >= configuration.maxSuggestedStandards {
+                break
+            }
+        }
+
+        return suggestions
     }
 
     private func isAvailabilityError(_ error: Error) -> Bool {

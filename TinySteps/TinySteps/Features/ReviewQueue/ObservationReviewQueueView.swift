@@ -18,6 +18,9 @@ struct ObservationReviewQueueView: View {
     private let observationStandardTaggingService: ObservationStandardTaggingService
     private let observationStandardsLoadingService: MBStandardsLoadingService
     private let observationChildMatcher: ObservationChildNameMatching
+    private let classesService: ClassesService
+
+    @State private var classRosterSnapshot: [ObservationRosterStudent] = []
 
     init(
         session: AuthSession,
@@ -31,6 +34,7 @@ struct ObservationReviewQueueView: View {
         observationTaggingService: ObservationTaggingService,
         observationStandardTaggingService: ObservationStandardTaggingService,
         observationStandardsLoadingService: MBStandardsLoadingService,
+        classesService: ClassesService,
         observationChildMatcher: ObservationChildNameMatching,
         onShowClassSwitcher: @escaping () -> Void,
         onDraftsChanged: @escaping (Int) -> Void
@@ -46,6 +50,7 @@ struct ObservationReviewQueueView: View {
         self.observationTaggingService = observationTaggingService
         self.observationStandardTaggingService = observationStandardTaggingService
         self.observationStandardsLoadingService = observationStandardsLoadingService
+        self.classesService = classesService
         self.observationChildMatcher = observationChildMatcher
 
         let classID = Self.resolvedClassID(
@@ -81,6 +86,7 @@ struct ObservationReviewQueueView: View {
         .task(id: model.classID) {
             await model.load()
             onDraftsChanged(model.reviewCount)
+            await loadClassRosterSnapshot()
         }
         .onChange(of: model.reviewCount) { _, count in
             onDraftsChanged(count)
@@ -91,7 +97,10 @@ struct ObservationReviewQueueView: View {
                     classID: draft.classID,
                     className: draft.className,
                     selectedClass: selectedClass ?? Self.sessionUserPlaceholderClass(for: draft),
-                    rosterSnapshot: Self.rosterStudents(for: draft),
+                    rosterSnapshot: Self.rosterStudents(
+                        from: draft,
+                        fallbackTo: classRosterSnapshot
+                    ),
                     initialDraftID: draft.id
                 ),
                 speechTranscriber: observationSpeechTranscriber,
@@ -139,6 +148,28 @@ struct ObservationReviewQueueView: View {
         .safeAreaInset(edge: .bottom) {
             if model.filteredDrafts.isEmpty == false {
                 bulkPublishBar
+            }
+        }
+    }
+
+    private func loadClassRosterSnapshot() async {
+        guard let classID = model.classID,
+              let selectedClass,
+              selectedClass.id == classID else {
+            classRosterSnapshot = []
+            return
+        }
+
+        do {
+            let members = try await classesService.loadClassStudents(
+                for: session,
+                classID: classID
+            )
+            classRosterSnapshot = members.map(Self.observationRosterStudent(from:))
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        } catch {
+            if classRosterSnapshot.isEmpty {
+                classRosterSnapshot = []
             }
         }
     }
@@ -334,13 +365,6 @@ struct ObservationReviewQueueView: View {
             .buttonStyle(.plain)
             .disabled(!model.canPublishSeen)
 
-            Text("Scroll through to confirm - only seen moments publish")
-                .font(.caption2)
-                .foregroundStyle(Color(hex: "#6E6456"))
-                .padding(.horizontal, 14)
-                .frame(height: 28)
-                .background(Color(hex: "#FFFDF8").opacity(0.9))
-                .clipShape(Capsule())
         }
         .padding(.horizontal, 20)
         .padding(.top, 10)
@@ -487,6 +511,31 @@ struct ObservationReviewQueueView: View {
             iconName: "",
             isLocked: false,
             isMember: true
+        )
+    }
+
+    private static func rosterStudents(
+        from draft: ObservationCaptureDraft,
+        fallbackTo fullRoster: [ObservationRosterStudent]
+    ) -> [ObservationRosterStudent] {
+        guard fullRoster.isEmpty == false else {
+            return rosterStudents(for: draft)
+        }
+
+        let draftStudents = rosterStudents(for: draft)
+        let fullKeys = Set(fullRoster.map(\.studentKey))
+        let missing = draftStudents.filter { fullKeys.contains($0.studentKey) == false }
+
+        return fullRoster + missing
+    }
+
+    private static func observationRosterStudent(from member: MBMember) -> ObservationRosterStudent {
+        ObservationRosterStudent(
+            id: member.rosterStudentKey,
+            studentKey: member.rosterStudentKey,
+            displayName: member.displayName,
+            firstName: member.firstNameFromDisplayName,
+            initials: reviewDraftInitials(from: member.displayName)
         )
     }
 
@@ -844,6 +893,7 @@ private extension String {
             observationTaggingService: DisabledObservationTaggingService(),
             observationStandardTaggingService: DisabledObservationStandardTaggingService(),
             observationStandardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
+            classesService: MBClassesService.preview(),
             observationChildMatcher: LocalObservationChildNameMatcher(),
             onShowClassSwitcher: {},
             onDraftsChanged: { _ in }

@@ -250,7 +250,7 @@ struct ObservationCaptureView: View {
 
     private var quickFillTextButton: some View {
         Button("Insert sample text") {
-            model.updateTranscript("Mia described how the classroom jobs work together, explaining that the line leader, materials helper, and table captains each have different responsibilities.")
+            model.updateTranscript("Chloe described how the classroom jobs work together, explaining that the line leader, materials helper, and table captains each have different responsibilities.")
             model.suggestTagsForCurrentTranscript()
         }
         .font(.caption.weight(.medium))
@@ -412,23 +412,28 @@ struct ObservationCaptureView: View {
                     .foregroundStyle(Color(hex: "#A89E8F"))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if model.standardTagSuggestions.isEmpty {
-                if model.standardTagPickerCandidates.isEmpty {
+                if model.standardTagPickerCandidates.isEmpty && model.isStandardTaggingInProgress == false {
                     Text("No standards available for this unit yet.")
                         .font(.caption)
                         .foregroundStyle(Color(hex: "#A89E8F"))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
+                } else if model.isStandardTaggingInProgress == false {
                     Text("No standards selected yet.")
                         .font(.caption)
                         .foregroundStyle(Color(hex: "#A89E8F"))
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ObservationTagFlowLayout(spacing: 8, lineSpacing: 8) {
+                        standardTagProcessingIndicator
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(
+                        .spring(response: 0.34, dampingFraction: 0.82),
+                        value: model.isStandardTaggingInProgress
+                    )
                 }
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
-                    alignment: .leading,
-                    spacing: 8
-                ) {
+            } else if model.standardTagSuggestions.isEmpty == false || model.isStandardTaggingInProgress {
+                ObservationTagFlowLayout(spacing: 8, lineSpacing: 8) {
                     ForEach(model.standardTagSuggestions) { suggestion in
                         ObservationTagChip(
                             text: suggestion.displayHashtag.isEmpty ? suggestion.title : suggestion.displayHashtag,
@@ -440,8 +445,24 @@ struct ObservationCaptureView: View {
                                 model.removeStandardTag(referenceID: suggestion.referenceID)
                             }
                         )
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .leading)
+                                .combined(with: .scale(scale: 0.92))
+                                .combined(with: .opacity),
+                            removal: .move(edge: .trailing)
+                                .combined(with: .scale(scale: 0.95))
+                                .combined(with: .opacity)
+                        ))
+                    }
+
+                    if model.isStandardTaggingInProgress {
+                        standardTagProcessingIndicator
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.spring(response: 0.34, dampingFraction: 0.82), value: model.standardTagSuggestions.map(\.referenceID))
+                .animation(.easeInOut(duration: 0.22), value: model.standardTagSuggestions.count)
+                .animation(.spring(response: 0.34, dampingFraction: 0.82), value: model.isStandardTaggingInProgress)
             }
 
             if let selectedStandardTag,
@@ -469,6 +490,78 @@ struct ObservationCaptureView: View {
         .accessibilityElement(children: .contain)
     }
 
+    private var standardTagProcessingIndicator: some View {
+        TimelineView(.periodic(from: .now, by: 0.45)) { timeline in
+            let dotCount = 1 + (Int(timeline.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 1.4) / 0.35) % 3)
+            let processingText = "Processing" + String(repeating: ".", count: dotCount)
+
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.caption2)
+
+                rollingHighlightText(processingText)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color(hex: "#3A342E"))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .frame(minHeight: 30)
+            .fixedSize(horizontal: true, vertical: false)
+            .background(Color(hex: "#8DA67A").opacity(0.10))
+            .clipShape(Capsule())
+            .accessibilityLabel("Processing standard tags")
+            .transition(.asymmetric(
+                insertion: .move(edge: .leading).combined(with: .opacity),
+                removal: .move(edge: .trailing).combined(with: .opacity)
+            ))
+            .animation(.default, value: dotCount)
+        }
+    }
+
+    private func rollingHighlightText(_ text: String) -> some View {
+        TimelineView(.animation(minimumInterval: 0.06)) { timeline in
+            let localDate = timeline.date
+            let sweepDuration = 1.45
+            let phase = localDate.timeIntervalSince1970.truncatingRemainder(dividingBy: sweepDuration) / sweepDuration
+
+            Text(text)
+                .font(.caption.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(nil)
+                .multilineTextAlignment(.center)
+                .overlay(alignment: .leading) {
+                    GeometryReader { geometry in
+                        let textGeometry = geometry.size.width
+                        let bandWidth = max(textGeometry * 0.45, 26)
+                        let travelDistance = textGeometry + (bandWidth * 2)
+                        let xOffset = -bandWidth + (travelDistance * phase)
+
+                        LinearGradient(
+                            colors: [
+                                Color(hex: "#3A342E").opacity(0),
+                                Color(hex: "#FFFDF8").opacity(0.38),
+                                Color(hex: "#FFFDF8").opacity(0.02),
+                                Color(hex: "#3A342E").opacity(0)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: bandWidth)
+                        .offset(x: xOffset)
+                        .mask(
+                            Text(text)
+                                .font(.caption.weight(.medium))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .lineLimit(nil)
+                                .multilineTextAlignment(.center)
+                        )
+                        .blendMode(.screen)
+                        .allowsHitTesting(false)
+                    }
+                }
+        }
+    }
+
     private var chipBloomSection: some View {
         Group {
             if hasPYPTagValues {
@@ -477,15 +570,22 @@ struct ObservationCaptureView: View {
                         .font(.caption)
                         .foregroundStyle(Color(hex: "#6E6456"))
 
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: chipColumnMinimum), spacing: 8)],
-                        spacing: 8
-                    ) {
+                    ObservationTagFlowLayout(spacing: 8, lineSpacing: 8) {
                         tagGroup(category: .transdisciplinaryTheme, values: themeValues)
                         tagGroup(category: .keyConcept, values: conceptValues)
                         tagGroup(category: .atlSkill, values: atlValues)
                         tagGroup(category: .learnerProfile, values: profileValues)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(
+                        .spring(response: 0.34, dampingFraction: 0.82),
+                        value: [
+                            themeValues.joined(separator: "|"),
+                            conceptValues.joined(separator: "|"),
+                            atlValues.joined(separator: "|"),
+                            profileValues.joined(separator: "|")
+                        ].joined(separator: "|")
+                    )
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Suggested PYP tags")
@@ -511,6 +611,12 @@ struct ObservationCaptureView: View {
                     }
                     model.removeTag(category: category, value: value)
                 }
+            )
+            .transition(
+                .asymmetric(
+                    insertion: .scale(scale: 0.88).combined(with: .opacity),
+                    removal: .scale(scale: 0.94).combined(with: .opacity)
+                )
             )
         }
     }
@@ -746,7 +852,9 @@ struct ObservationCaptureView: View {
     private func requestClose() {
         Task {
             await model.cancelActiveCapture()
-            if model.hasTranscript {
+            if model.isEditingExistingDraft {
+                close()
+            } else if model.hasTranscript {
                 isShowingDiscardConfirmation = true
             } else {
                 close()
@@ -1016,10 +1124,85 @@ private struct ObservationTagChip: View {
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
         .frame(minHeight: 30)
-        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: true, vertical: false)
         .background(Color(hex: "#8DA67A").opacity(isSkeleton ? 0.10 : 0.18))
         .clipShape(Capsule())
         .accessibilityLabel(text)
+    }
+}
+
+private struct ObservationTagFlowLayout: Layout {
+    let spacing: CGFloat
+    let lineSpacing: CGFloat
+    typealias Cache = [CGSize]
+
+    func makeCache(subviews: Subviews) -> Cache {
+        subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache = subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> CGSize {
+        let maxWidth = proposal.replacingUnspecifiedDimensions(by: CGSize(width: 10_000, height: 10_000)).width
+        let availableWidth = maxWidth.isFinite ? maxWidth : 10_000
+        let result = makeLayout(for: cache, availableWidth: availableWidth)
+        return result.size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        let maxWidth = proposal.replacingUnspecifiedDimensions(by: CGSize(width: 10_000, height: 10_000)).width
+        let availableWidth = maxWidth.isFinite ? maxWidth : 10_000
+        let result = makeLayout(for: cache, availableWidth: availableWidth)
+
+        for (index, position) in result.positions.enumerated() {
+            if index < subviews.count {
+                subviews[index].place(
+                    at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                    anchor: .topLeading,
+                    proposal: .unspecified
+                )
+            }
+        }
+    }
+
+    private func makeLayout(for sizes: [CGSize], availableWidth: CGFloat) -> (positions: [CGPoint], size: CGSize) {
+        var positions: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxXUsed: CGFloat = 0
+
+        for subviewSize in sizes {
+            guard subviewSize.width > 0 && subviewSize.height > 0 else {
+                positions.append(CGPoint(x: currentX, y: currentY))
+                continue
+            }
+
+            if currentX > 0 && currentX + subviewSize.width > availableWidth {
+                currentX = 0
+                currentY += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+            currentX += subviewSize.width + spacing
+            rowHeight = max(rowHeight, subviewSize.height)
+            maxXUsed = max(maxXUsed, currentX - spacing)
+        }
+
+        let totalHeight = positions.isEmpty ? 0 : currentY + rowHeight
+        return (positions, CGSize(width: availableWidth, height: totalHeight))
     }
 }
 

@@ -160,6 +160,7 @@ struct TeacherHomeView: View {
             observationTaggingService: observationTaggingService,
             observationStandardTaggingService: observationStandardTaggingService,
             observationStandardsLoadingService: standardsLoadingService,
+            classesService: classesService,
             observationChildMatcher: observationChildMatcher,
             onShowClassSwitcher: onShowClassSwitcher,
             onDraftsChanged: { count in

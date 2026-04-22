@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 import os
 
 @Observable
@@ -14,6 +15,7 @@ final class ObservationCaptureViewModel {
     private(set) var evidenceSpans: [ObservationEvidenceSpan] = []
     private(set) var pendingRetag = true
     private(set) var statusMessage: String?
+    private(set) var isStandardTaggingInProgress = false
 
     private let captureSession: ObservationCaptureSession
     private let speechTranscriber: ObservationSpeechTranscribing
@@ -40,6 +42,8 @@ final class ObservationCaptureViewModel {
     private let initialDraftID: ObservationCaptureDraft.ID?
     private(set) var selectedUnitID: String?
     private(set) var standardsLoadResult: MBStandardsLoadResult?
+    private var baselineTranscriptForTags: String = ""
+    private var hasEditedTranscriptFromBaseline = false
     private var dismissedChildMatchKeys: Set<String> = []
     private var manuallyAssignedChildKeys: Set<String> = []
     private var manuallyExcludedStandardTagIDs: Set<String> = []
@@ -132,6 +136,10 @@ final class ObservationCaptureViewModel {
         }
 
         return status == .failed || status == .partialFailure
+    }
+
+    var isEditingExistingDraft: Bool {
+        currentDraftID != nil
     }
 
     var hasUnitSections: Bool {
@@ -310,6 +318,11 @@ final class ObservationCaptureViewModel {
     }
 
     func updateTranscript(_ newTranscript: String) {
+        guard newTranscript != transcript else {
+            return
+        }
+
+        let hasTranscriptChangedFromBaseline = newTranscript != baselineTranscriptForTags
         transcript = newTranscript
         let trimmedTranscript = newTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let transcriptWasEmpty = trimmedTranscript.isEmpty
@@ -327,8 +340,8 @@ final class ObservationCaptureViewModel {
             .map(Self.matchedChild)
 
         matchedChildren = automaticMatches + manualMatches
-        
-        if transcriptWasEmpty {
+
+        if hasTranscriptChangedFromBaseline && hasEditedTranscriptFromBaseline == false {
             tags = .empty
             confidence = 0
             evidenceSpans = []
@@ -336,14 +349,9 @@ final class ObservationCaptureViewModel {
             manuallyExcludedStandardTagIDs.removeAll()
             pendingRetag = true
             statusMessage = nil
-        } else {
-            tags = .empty
-            confidence = 0
-            evidenceSpans = []
-            standardTagSuggestions = []
-            manuallyExcludedStandardTagIDs.removeAll()
-            pendingRetag = true
         }
+
+        hasEditedTranscriptFromBaseline = hasTranscriptChangedFromBaseline
     }
 
     func suggestTagsForCurrentTranscript() {
@@ -470,8 +478,10 @@ final class ObservationCaptureViewModel {
 
     func removeStandardTag(referenceID: String) {
         manuallyExcludedStandardTagIDs.insert(referenceID)
-        standardTagSuggestions.removeAll { $0.referenceID == referenceID }
-        pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            standardTagSuggestions.removeAll { $0.referenceID == referenceID }
+            pendingRetag = tags.isEmpty && standardTagSuggestions.isEmpty
+        }
     }
 
     func addStandardTag(referenceID: String) {
@@ -497,8 +507,10 @@ final class ObservationCaptureViewModel {
             evidenceQuotes: [],
             selectionSource: .manual
         )
-        standardTagSuggestions.append(suggestion)
-        pendingRetag = false
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            standardTagSuggestions.append(suggestion)
+            pendingRetag = false
+        }
     }
 
     func evidence(forStandardTag suggestion: ObservationStandardTagSuggestion) -> String? {
@@ -612,13 +624,13 @@ final class ObservationCaptureViewModel {
         }
 
         if let selectedUnitID, result.unitSections.contains(where: { $0.id == selectedUnitID }) {
-            refreshStandardTagsIfNeeded(forUnitID: selectedUnitID)
+            refreshStandardTagsIfNeeded(forUnitID: selectedUnitID, allowAutoRetagForExistingDraft: false)
             return
         }
 
         selectedUnitID = result.unitSections.first?.id
         if let selectedUnitID {
-            refreshStandardTagsIfNeeded(forUnitID: selectedUnitID)
+            refreshStandardTagsIfNeeded(forUnitID: selectedUnitID, allowAutoRetagForExistingDraft: false)
         }
     }
 
@@ -626,15 +638,24 @@ final class ObservationCaptureViewModel {
         standardTagSuggestions.removeAll()
         manuallyExcludedStandardTagIDs.removeAll()
         pendingRetag = true
-        refreshStandardTagsIfNeeded(forUnitID: unitID)
+        refreshStandardTagsIfNeeded(forUnitID: unitID, allowAutoRetagForExistingDraft: true)
     }
 
-    private func refreshStandardTagsIfNeeded(forUnitID unitID: String) {
+    private func refreshStandardTagsIfNeeded(
+        forUnitID unitID: String,
+        allowAutoRetagForExistingDraft: Bool
+    ) {
         standardTagUpdateTask?.cancel()
 
         guard selectedUnitID == unitID,
               selectedUnitSection?.id == unitID,
               hasTranscript else {
+            return
+        }
+
+        if isEditingExistingDraft,
+           allowAutoRetagForExistingDraft == false,
+           hasEditedTranscriptFromBaseline == false {
             return
         }
 
@@ -770,6 +791,10 @@ final class ObservationCaptureViewModel {
 
     private func suggestStandardTags() async -> String? {
         var standardTaggingError: String?
+        isStandardTaggingInProgress = true
+        defer {
+            isStandardTaggingInProgress = false
+        }
 
         guard let selectedUnitSection else {
             let message = "No learning unit is selected for standard tagging."
@@ -904,7 +929,9 @@ final class ObservationCaptureViewModel {
             }
         }
 
-        standardTagSuggestions = merged
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            standardTagSuggestions = merged
+        }
     }
 
     private func referenceForStandardTag(referenceID: String) -> MBStandardReference? {
@@ -977,6 +1004,8 @@ final class ObservationCaptureViewModel {
 
     private func resetCaptureValuesForNewRecording() {
         transcript = ""
+        baselineTranscriptForTags = ""
+        hasEditedTranscriptFromBaseline = false
         matchedChildren = []
         dismissedChildMatchKeys = []
         manuallyAssignedChildKeys = []
@@ -998,6 +1027,8 @@ final class ObservationCaptureViewModel {
         currentDraftID = draft.id
         currentDraftCreatedAt = draft.createdAt
         transcript = draft.transcript
+        baselineTranscriptForTags = draft.transcript
+        hasEditedTranscriptFromBaseline = false
         matchedChildren = draft.matchedChildren
         dismissedChildMatchKeys = draft.dismissedChildMatchKeys
         manuallyAssignedChildKeys = Set(draft.matchedChildren.map(\.studentKey))

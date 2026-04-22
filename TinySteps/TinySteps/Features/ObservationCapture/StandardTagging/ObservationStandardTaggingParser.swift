@@ -104,6 +104,38 @@ struct ObservationStandardTaggingParser: Sendable {
         return parsed
     }
 
+    func parseVisibleSuggestionIDs(
+        from data: Data,
+        transcript: String,
+        candidatesByID: [String: MBStandardReference]
+    ) -> [String] {
+        let candidateIDs = parsePartialSuggestionIDs(
+            from: data,
+            candidatesByID: candidatesByID
+        )
+
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcriptTokens = tokenSet(for: trimmedTranscript)
+        guard transcriptTokens.count >= 2 else {
+            return []
+        }
+
+        var filtered: [String] = []
+        var seen = Set<String>()
+
+        for candidateID in candidateIDs {
+            guard seen.insert(candidateID).inserted else { continue }
+            guard let reference = candidatesByID[candidateID] else { continue }
+            let referenceTokens = Set(referenceTokens(for: reference))
+            guard referenceTokens.intersection(transcriptTokens).isEmpty == false else {
+                continue
+            }
+            filtered.append(candidateID)
+        }
+
+        return filtered
+    }
+
     private func clamp(_ value: Double) -> Double {
         min(max(value, 0), 1)
     }
@@ -440,12 +472,16 @@ struct ObservationStandardTaggingParser: Sendable {
         guard let range = raw.range(of: "\"\(key)\"") else { return [] }
         guard let startBracket = raw[range.upperBound...].firstIndex(of: "[") else { return [] }
         let remainder = String(raw[raw.index(after: startBracket)...])
-        guard let endBracket = remainder.firstIndex(of: "]") else { return [] }
-        let inside = String(remainder[..<endBracket])
-        return inside
+        let inside: String
+        if let endBracket = remainder.firstIndex(of: "]") {
+            inside = String(remainder[..<endBracket])
+        } else {
+            inside = remainder
+        }
+        let values = inside
             .split(separator: "\"")
-            .compactMap { token in
-                let cleaned = token
+            .compactMap { (token: Substring) -> String? in
+                let cleaned = String(token)
                     .trimmingCharacters(in: CharacterSet(charactersIn: ", []\n\t"))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard candidatesByID.keys.contains(cleaned), cleaned.isEmpty == false else {
@@ -453,6 +489,8 @@ struct ObservationStandardTaggingParser: Sendable {
                 }
                 return cleaned
             }
+
+        return deduplicatedCandidateIDs(values)
     }
 }
 
