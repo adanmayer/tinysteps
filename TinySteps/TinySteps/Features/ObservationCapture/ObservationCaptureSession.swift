@@ -14,6 +14,7 @@ struct ObservationCaptureSession: Identifiable, Equatable, Sendable {
     let className: String
     let selectedClass: MBClass
     let rosterSnapshot: [ObservationRosterStudent]
+    let initialDraftID: ObservationCaptureDraft.ID?
     let createdAt: Date
 
     init(
@@ -22,6 +23,7 @@ struct ObservationCaptureSession: Identifiable, Equatable, Sendable {
         className: String,
         selectedClass: MBClass,
         rosterSnapshot: [ObservationRosterStudent],
+        initialDraftID: ObservationCaptureDraft.ID? = nil,
         createdAt: Date = .now
     ) {
         self.id = id
@@ -29,15 +31,17 @@ struct ObservationCaptureSession: Identifiable, Equatable, Sendable {
         self.className = className
         self.selectedClass = selectedClass
         self.rosterSnapshot = rosterSnapshot
+        self.initialDraftID = initialDraftID
         self.createdAt = createdAt
     }
 
-    init(launchContext: ObservationCaptureLaunchContext) {
+    init(launchContext: ObservationCaptureLaunchContext, initialDraftID: ObservationCaptureDraft.ID? = nil) {
         self.init(
             classID: launchContext.classID,
             className: launchContext.className,
             selectedClass: launchContext.selectedClass,
-            rosterSnapshot: launchContext.rosterSnapshot
+            rosterSnapshot: launchContext.rosterSnapshot,
+            initialDraftID: initialDraftID
         )
     }
 }

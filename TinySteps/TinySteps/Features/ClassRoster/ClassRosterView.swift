@@ -123,45 +123,29 @@ struct ClassRosterView: View {
         VStack(spacing: 14) {
             HStack {
                 Button(action: onShowClassSwitcher) {
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(Color(hex: "#8DA67A"))
-                            .frame(width: 8, height: 8)
-                        Text("Choose a class")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color(hex: "#3A342E"))
-                        Image(systemName: "chevron.down")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(hex: "#6E6456"))
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .background(Color(hex: "#FFFDF8").opacity(0.95))
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(hex: "#D8CEBD"), lineWidth: 0.5)
-                    )
+                    classSelectorLabel(title: "Choose a class", showsChevron: true)
                 }
                 .disabled(!canShowClassSwitcher)
 
                 Spacer()
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
 
             Image(systemName: "person.3")
-                .font(.system(size: 44))
+                .font(.system(size: 34))
                 .foregroundStyle(.secondary)
 
             Text("Choose a class")
-                .font(.title2.weight(.semibold))
-                .padding(.top, 8)
+                .font(.title3.weight(.semibold))
+                .padding(.top, 6)
 
             Text("Face setup is tracked per class on this device.")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-                .padding(.top, 6)
+                .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -170,25 +154,7 @@ struct ClassRosterView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Button(action: onShowClassSwitcher) {
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(Color(hex: "#8DA67A"))
-                            .frame(width: 8, height: 8)
-                        Text(classPickerTitle)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color(hex: "#3A342E"))
-                        Image(systemName: "chevron.down")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(hex: "#6E6456"))
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .background(Color(hex: "#FFFDF8").opacity(0.95))
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(hex: "#D8CEBD"), lineWidth: 0.5)
-                    )
+                    classSelectorLabel(title: classPickerTitle, showsChevron: true)
                 }
                 .disabled(!canShowClassSwitcher)
 
@@ -232,20 +198,20 @@ struct ClassRosterView: View {
                     Button("Class settings", action: onShowClassSettings)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 4)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Class")
-                    .font(.system(size: 32, weight: .semibold))
+                    .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(Color(hex: "#3A342E"))
                 Text(model.headerMetaText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
             .padding(.bottom, 12)
 
             searchBar
@@ -262,12 +228,37 @@ struct ClassRosterView: View {
                     }
                     Spacer()
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
                 .padding(.top, 14)
                 .padding(.bottom, 10)
             }
         }
         .padding(.bottom, 4)
+    }
+
+    private func classSelectorLabel(title: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color(hex: "#3A342E"))
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(hex: "#6E6456"))
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 44)
+        .background(Color(hex: "#FFFDF8"))
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.05), radius: 12, x: 0, y: 6)
+        .overlay(
+            Capsule()
+                .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.5)
+        )
     }
 
     private var classContent: some View {

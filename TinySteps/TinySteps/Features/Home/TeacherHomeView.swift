@@ -156,6 +156,11 @@ struct TeacherHomeView: View {
             canShowClassSwitcher: canShowClassSwitcher,
             draftStore: observationDraftStore,
             publisher: observationDraftPublisher,
+            observationSpeechTranscriber: observationSpeechTranscriber,
+            observationTaggingService: observationTaggingService,
+            observationStandardTaggingService: observationStandardTaggingService,
+            observationStandardsLoadingService: standardsLoadingService,
+            observationChildMatcher: observationChildMatcher,
             onShowClassSwitcher: onShowClassSwitcher,
             onDraftsChanged: { count in
                 reviewDraftCount = count

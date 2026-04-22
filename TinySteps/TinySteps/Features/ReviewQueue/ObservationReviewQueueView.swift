@@ -4,11 +4,20 @@ import MBAPI
 struct ObservationReviewQueueView: View {
     @State private var model: ObservationReviewQueueModel
     @State private var pendingDeleteDraft: ObservationCaptureDraft?
+    @State private var editingDraft: ObservationCaptureDraft?
 
     private let selectedContextTitle: String
+    private let session: AuthSession
+    private let selectedClass: MBClass?
+    private let draftStore: ObservationCaptureDraftStore
     private let canShowClassSwitcher: Bool
     private let onShowClassSwitcher: () -> Void
     private let onDraftsChanged: (Int) -> Void
+    private let observationSpeechTranscriber: ObservationSpeechTranscribing
+    private let observationTaggingService: ObservationTaggingService
+    private let observationStandardTaggingService: ObservationStandardTaggingService
+    private let observationStandardsLoadingService: MBStandardsLoadingService
+    private let observationChildMatcher: ObservationChildNameMatching
 
     init(
         session: AuthSession,
@@ -18,13 +27,26 @@ struct ObservationReviewQueueView: View {
         canShowClassSwitcher: Bool,
         draftStore: ObservationCaptureDraftStore,
         publisher: ObservationDraftPublishing,
+        observationSpeechTranscriber: ObservationSpeechTranscribing,
+        observationTaggingService: ObservationTaggingService,
+        observationStandardTaggingService: ObservationStandardTaggingService,
+        observationStandardsLoadingService: MBStandardsLoadingService,
+        observationChildMatcher: ObservationChildNameMatching,
         onShowClassSwitcher: @escaping () -> Void,
         onDraftsChanged: @escaping (Int) -> Void
     ) {
         self.selectedContextTitle = selectedContextTitle
+        self.session = session
+        self.selectedClass = selectedClass
+        self.draftStore = draftStore
         self.canShowClassSwitcher = canShowClassSwitcher
         self.onShowClassSwitcher = onShowClassSwitcher
         self.onDraftsChanged = onDraftsChanged
+        self.observationSpeechTranscriber = observationSpeechTranscriber
+        self.observationTaggingService = observationTaggingService
+        self.observationStandardTaggingService = observationStandardTaggingService
+        self.observationStandardsLoadingService = observationStandardsLoadingService
+        self.observationChildMatcher = observationChildMatcher
 
         let classID = Self.resolvedClassID(
             classContext: classContext,
@@ -62,6 +84,31 @@ struct ObservationReviewQueueView: View {
         }
         .onChange(of: model.reviewCount) { _, count in
             onDraftsChanged(count)
+        }
+        .fullScreenCover(item: $editingDraft) { draft in
+            ObservationCaptureView(
+                captureSession: ObservationCaptureSession(
+                    classID: draft.classID,
+                    className: draft.className,
+                    selectedClass: selectedClass ?? Self.sessionUserPlaceholderClass(for: draft),
+                    rosterSnapshot: Self.rosterStudents(for: draft),
+                    initialDraftID: draft.id
+                ),
+                speechTranscriber: observationSpeechTranscriber,
+                taggingService: observationTaggingService,
+                standardTaggingService: observationStandardTaggingService,
+                standardsLoadingService: observationStandardsLoadingService,
+                childMatcher: observationChildMatcher,
+                draftStore: draftStore,
+                session: session,
+                onDismiss: {
+                    editingDraft = nil
+                    Task {
+                        await model.load()
+                        onDraftsChanged(model.reviewCount)
+                    }
+                }
+            )
         }
         .confirmationDialog(
             "Delete this draft?",
@@ -236,11 +283,8 @@ struct ObservationReviewQueueView: View {
                                 onDraftsChanged(model.reviewCount)
                             }
                         },
-                        onSave: {
-                            Task {
-                                await model.saveForLater(draft.id)
-                                onDraftsChanged(model.reviewCount)
-                            }
+                        onEdit: {
+                            editingDraft = draft
                         },
                         onDelete: {
                             pendingDeleteDraft = draft
@@ -435,6 +479,48 @@ struct ObservationReviewQueueView: View {
 
         return contextClassID
     }
+
+    private static func sessionUserPlaceholderClass(for draft: ObservationCaptureDraft) -> MBClass {
+        MBClass(
+            id: draft.classID,
+            displayName: draft.className,
+            iconName: "",
+            isLocked: false,
+            isMember: true
+        )
+    }
+
+    private static func rosterStudents(for draft: ObservationCaptureDraft) -> [ObservationRosterStudent] {
+        var students: [ObservationRosterStudent] = []
+        var seenStudentKeys: Set<String> = []
+
+        for child in draft.matchedChildren {
+            guard seenStudentKeys.insert(child.studentKey).inserted else {
+                continue
+            }
+
+            let firstName = child.displayName.split(separator: " ").first.map(String.init) ?? child.displayName
+            students.append(
+                ObservationRosterStudent(
+                    id: child.id,
+                    studentKey: child.studentKey,
+                    displayName: child.displayName,
+                    firstName: firstName,
+                    initials: Self.reviewDraftInitials(from: child.displayName)
+                )
+            )
+        }
+        return students
+    }
+
+    private static func reviewDraftInitials(from displayName: String) -> String {
+        let parts = displayName.split(separator: " ").prefix(2)
+        let initials = parts
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+        return initials.isEmpty ? String(displayName.prefix(2)).uppercased() : initials.uppercased()
+    }
 }
 
 private struct ObservationReviewDraftCard: View {
@@ -443,7 +529,7 @@ private struct ObservationReviewDraftCard: View {
     let isActing: Bool
     let onSeen: () -> Void
     let onPublish: () -> Void
-    let onSave: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     private var isReady: Bool {
@@ -483,12 +569,17 @@ private struct ObservationReviewDraftCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(accentColor)
-                .frame(width: 28, height: 28)
-                .background(Color(hex: "#F5EDE0"))
-                .clipShape(Circle())
+            Menu {
+                Button("Delete draft", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(accentColor)
+                    .frame(width: 28, height: 28)
+                    .background(Color(hex: "#F5EDE0"))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
 
             Text(draft.reviewHeaderText)
                 .font(.footnote.weight(.medium))
@@ -556,12 +647,7 @@ private struct ObservationReviewDraftCard: View {
 
             Spacer(minLength: 8)
 
-            Button("Delete", role: .destructive, action: onDelete)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Color(hex: "#C97A6E"))
-                .buttonStyle(.plain)
-
-            Button("Save", action: onSave)
+            Button("Edit", action: onEdit)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Color(hex: "#3A342E"))
                 .buttonStyle(.plain)
@@ -705,6 +791,22 @@ private extension ObservationCaptureDraft {
         values.append(contentsOf: tags.keyConcepts.map(\.rawValue))
         values.append(contentsOf: tags.atlSkills.map(\.rawValue))
         values.append(contentsOf: tags.learnerProfile.map(\.rawValue))
+
+        let standardTagValues = standardTagSuggestions.compactMap { suggestion in
+            let tag = suggestion.displayHashtag.isEmpty ? suggestion.title : suggestion.displayHashtag
+            let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedTag.isEmpty ? nil : trimmedTag
+        }
+
+        for standardTag in standardTagValues {
+            let isDuplicate = values.contains { existing in
+                existing.caseInsensitiveCompare(standardTag) == .orderedSame
+            }
+            if isDuplicate == false {
+                values.append(standardTag)
+            }
+        }
+
         return values
     }
 }
@@ -738,6 +840,11 @@ private extension String {
             canShowClassSwitcher: true,
             draftStore: ObservationReviewPreviewStore(),
             publisher: UnavailableObservationDraftPublisher(),
+            observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
+            observationTaggingService: DisabledObservationTaggingService(),
+            observationStandardTaggingService: DisabledObservationStandardTaggingService(),
+            observationStandardsLoadingService: MBStandardsLoadingServiceImpl.preview(),
+            observationChildMatcher: LocalObservationChildNameMatcher(),
             onShowClassSwitcher: {},
             onDraftsChanged: { _ in }
         )

@@ -37,6 +37,7 @@ final class ObservationCaptureViewModel {
     private var shouldCancelPendingStart = false
     private var currentDraftID: UUID?
     private var currentDraftCreatedAt: Date?
+    private let initialDraftID: ObservationCaptureDraft.ID?
     private(set) var selectedUnitID: String?
     private(set) var standardsLoadResult: MBStandardsLoadResult?
     private var dismissedChildMatchKeys: Set<String> = []
@@ -55,7 +56,8 @@ final class ObservationCaptureViewModel {
         standardsLoadingService: MBStandardsLoadingService,
         childMatcher: ObservationChildNameMatching,
         draftStore: ObservationCaptureDraftStore,
-        session: AuthSession
+        session: AuthSession,
+        initialDraftID: ObservationCaptureDraft.ID? = nil
     ) {
         self.captureSession = captureSession
         self.speechTranscriber = speechTranscriber
@@ -65,6 +67,7 @@ final class ObservationCaptureViewModel {
         self.childMatcher = childMatcher
         self.draftStore = draftStore
         self.authSession = session
+        self.initialDraftID = initialDraftID ?? captureSession.initialDraftID
     }
 
     var className: String {
@@ -254,6 +257,21 @@ final class ObservationCaptureViewModel {
 
         do {
             let drafts = try await draftStore.loadDrafts(forClassID: captureSession.classID)
+            if let initialDraftID {
+                if let targetDraft = drafts.last(where: { $0.id == initialDraftID }) {
+                    apply(draft: targetDraft)
+                    statusMessage = "Editing draft."
+                    state = .draftReady
+                } else {
+                    statusMessage = "Saved draft could not be loaded."
+                    state = .ready
+                }
+                Task {
+                    await loadStandards(forceRefresh: true)
+                }
+                return
+            }
+
             if let latestDraft = drafts.last(where: { $0.status.isRecoverableActiveDraft }) {
                 apply(draft: latestDraft)
                 statusMessage = "Recovered an in-progress local observation draft."
