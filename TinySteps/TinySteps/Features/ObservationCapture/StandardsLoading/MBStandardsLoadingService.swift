@@ -265,17 +265,17 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
         in context: MBSessionContext,
         classProgramCode: String?
     ) async -> UnitComponentLoadResult {
-        if let components = await loadComponentsFromUnitEndpoint(
+        if let components = await loadComponentsFromClassEndpoint(
             for: unit,
+            inClassID: classID,
             in: context,
             classProgramCode: classProgramCode
         ) {
             return components
         }
 
-        if let components = await loadComponentsFromClassEndpoint(
+        if let components = await loadComponentsFromUnitEndpoint(
             for: unit,
-            inClassID: classID,
             in: context,
             classProgramCode: classProgramCode
         ) {
@@ -357,18 +357,12 @@ final class MBStandardsLoadingServiceImpl: MBStandardsLoadingService {
                 ),
                 failure: nil
             )
-
-            return UnitComponentLoadResult(
-                unitID: unit.id,
-                unitTitle: unit.title,
-                references: mapReferences(
-                    from: components,
-                    unit: unit,
-                    classProgramCode: classProgramCode
-                ),
-                failure: nil
-            )
         } catch {
+            if case MBClientError.unexpectedStatusCode(let statusCode) = error,
+               statusCode == 404 {
+                return nil
+            }
+
             return UnitComponentLoadResult(
                 unitID: unit.id,
                 unitTitle: unit.title,
