@@ -62,10 +62,10 @@ struct ObservationCaptureView: View {
 
                 ScrollView {
                     VStack(spacing: 26) {
-                        standardTagSection
                         unitSelectionSection
                         transcriptCard
                         quickFillTextButton
+                        standardTagSection
                         chipBloomSection
                         detectedChildrenSection
                         evidenceSection
@@ -376,21 +376,42 @@ struct ObservationCaptureView: View {
     }
 
     private var standardTagSection: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("Suggested standards")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(hex: "#3A342E"))
+                HStack(spacing: 4) {
+                    Text("Standards")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
 
-                Button("Add standard") {
-                    isShowingStandardTagPicker = true
+                    Text("(\(model.standardTagSuggestions.count))")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(hex: "#A89E8F"))
                 }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(model.standardTagSuggestions.isEmpty ? Color(hex: "#6B8659") : Color(hex: "#3A342E"))
+
+                Button {
+                    isShowingStandardTagPicker = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+                        .frame(width: 26, height: 26)
+                        .background(Color(hex: "#FFFDF8"))
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+                        )
+                }
                 .disabled(model.standardTagPickerCandidates.isEmpty)
+                .accessibilityLabel("Add standard")
             }
 
-            if model.standardTagSuggestions.isEmpty {
+            if let standardsStatusMessage = standardStatusMessage {
+                Text(standardsStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(Color(hex: "#A89E8F"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if model.standardTagSuggestions.isEmpty {
                 if model.standardTagPickerCandidates.isEmpty {
                     Text("No standards available for this unit yet.")
                         .font(.caption)
@@ -497,9 +518,15 @@ struct ObservationCaptureView: View {
     private var detectedChildrenSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("Students")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(hex: "#3A342E"))
+                HStack(spacing: 4) {
+                    Text("Students")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+
+                    Text("(\(model.matchedChildren.count))")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(hex: "#A89E8F"))
+                }
 
                 Button {
                     isShowingStudentPicker = true
@@ -617,11 +644,28 @@ struct ObservationCaptureView: View {
                 }
             }
         } else if let statusMessage = model.statusMessage {
+            if isStandardStatusMessage(statusMessage) {
+                EmptyView()
+            } else {
             Text(statusMessage)
                 .font(.footnote)
                 .foregroundStyle(Color(hex: "#6E6456"))
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
+    }
+
+    private var standardStatusMessage: String? {
+        guard let statusMessage = model.statusMessage else {
+            return nil
+        }
+
+        return isStandardStatusMessage(statusMessage) ? statusMessage : nil
+    }
+
+    private func isStandardStatusMessage(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("standard")
     }
 
     private var microphoneBar: some View {
@@ -810,35 +854,31 @@ private struct ObservationStandardTagPickerSheet: View {
     let onSelect: (MBStandardReference) -> Void
     let onDismiss: () -> Void
 
+    private struct StandardSection: Identifiable {
+        let id: String
+        let title: String?
+        var references: [MBStandardReference]
+    }
+
     var body: some View {
         NavigationStack {
-            List(candidates) { reference in
-                Button {
-                    onSelect(reference)
-                    dismiss()
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(reference.displayHashtag.isEmpty ? reference.title : reference.displayHashtag)
-                            .font(.body.weight(.semibold))
+            List {
+                ForEach(groupedSections) { section in
+                    if let sectionTitle = section.title {
+                        Section(header: Text(sectionTitle)
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color(hex: "#3A342E"))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text(reference.title)
-                            .font(.footnote)
-                            .foregroundStyle(Color(hex: "#6E6456"))
-                            .lineLimit(2)
-
-                        if let detail = reference.detail, detail.isEmpty == false {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(Color(hex: "#A89E8F"))
-                                .lineLimit(2)
+                        ) {
+                            ForEach(section.references) { reference in
+                                standardTagRow(reference: reference, showDetailInline: false)
+                            }
+                        }
+                    } else {
+                        ForEach(section.references) { reference in
+                            standardTagRow(reference: reference, showDetailInline: true)
                         }
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .disabled(selectedReferenceIDs.contains(reference.id))
             }
             .navigationTitle("Select standards")
             .navigationBarTitleDisplayMode(.inline)
@@ -851,6 +891,95 @@ private struct ObservationStandardTagPickerSheet: View {
                 }
             }
         }
+    }
+
+    private var groupedSections: [StandardSection] {
+        let sortedCandidates = candidates
+            .sorted {
+                if $0.kind == $1.kind {
+                    return $0.title.lowercased() < $1.title.lowercased()
+                }
+
+                return $0.kind.rawValue < $1.kind.rawValue
+            }
+
+        var sections: [StandardSection] = []
+
+        for reference in sortedCandidates {
+            if let sectionTitle = groupingTitle(for: reference) {
+                if let existingIndex = sections.firstIndex(where: { $0.title == sectionTitle && $0.title != nil }) {
+                    sections[existingIndex].references.append(reference)
+                } else {
+                    sections.append(.init(id: sectionTitle, title: sectionTitle, references: [reference]))
+                }
+            } else {
+                sections.append(.init(id: "ungrouped-\(reference.id)", title: nil, references: [reference]))
+            }
+        }
+
+        return sections
+    }
+
+    private func groupingTitle(for reference: MBStandardReference) -> String? {
+        guard reference.kind == .pypTheme else {
+            return nil
+        }
+
+        guard let detail = reference.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              detail.isEmpty == false else {
+            return nil
+        }
+
+        return detail
+    }
+
+    private func standardTagRow(reference: MBStandardReference, showDetailInline: Bool) -> some View {
+        Button {
+            guard selectedReferenceIDs.contains(reference.id) == false else {
+                return
+            }
+
+            onSelect(reference)
+            dismiss()
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(reference.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if showDetailInline,
+                       let detail = reference.detail,
+                       detail.isEmpty == false {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(Color(hex: "#A89E8F"))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Text(reference.displayHashtag.isEmpty ? "#\(reference.sourceID.prefix(6))" : reference.displayHashtag)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(hex: "#6E6456"))
+                }
+
+                if selectedReferenceIDs.contains(reference.id) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: "#8DA67A"))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(selectedReferenceIDs.contains(reference.id))
+        .accessibilityLabel(
+            selectedReferenceIDs.contains(reference.id)
+            ? "\(reference.title), already selected"
+            : "Select \(reference.title)"
+        )
     }
 }
 

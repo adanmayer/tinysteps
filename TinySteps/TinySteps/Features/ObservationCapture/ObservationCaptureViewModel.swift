@@ -151,9 +151,6 @@ final class ObservationCaptureViewModel {
         return references
             .uniqueByID()
             .filter(\.sourceIdentity.isPersistable)
-            .filter { candidate in
-                standardTagSuggestions.contains { $0.referenceID == candidate.id } == false
-            }
             .sorted {
                 if $0.kind == $1.kind {
                     return $0.title.lowercased() < $1.title.lowercased()
@@ -267,7 +264,7 @@ final class ObservationCaptureViewModel {
                     state = .ready
                 }
                 Task {
-                    await loadStandards(forceRefresh: true)
+                    await loadStandards(forceRefresh: false)
                 }
                 return
             }
@@ -285,7 +282,7 @@ final class ObservationCaptureViewModel {
         }
 
         Task {
-            await loadStandards(forceRefresh: true)
+            await loadStandards(forceRefresh: false)
         }
     }
 
