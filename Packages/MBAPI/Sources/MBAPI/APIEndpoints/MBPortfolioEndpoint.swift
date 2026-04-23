@@ -6,6 +6,25 @@ public protocol MBPortfolioEndpoint: Sendable {
         classID: String?,
         query: [String: String]
     ) async throws -> [Portfolio.TimelineItem]
+
+    func createClassResource<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        kind: Portfolio.ResourceKind,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse
+
+    func uploadPhoto(
+        in context: MBSessionContext,
+        imageData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> Portfolio.UploadedPhoto
+
+    func loadClassPortfolioSettings(
+        in context: MBSessionContext,
+        programID: String
+    ) async throws -> Portfolio.Settings
 }
 
 public struct MBPortfolioEndpointClient: MBPortfolioEndpoint, Sendable {
@@ -32,6 +51,83 @@ public struct MBPortfolioEndpointClient: MBPortfolioEndpoint, Sendable {
             from: endpointPath,
             in: context,
             query: query
+        )
+    }
+
+    public func createClassResource<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        kind: Portfolio.ResourceKind,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse {
+        let endpointPath = "\(context.role.urlPathComponent)/portfolio/classes/\(classID)/resources/\(kind.rawValue)"
+        return try await requester.send(
+            Portfolio.ResourceCreateResponse.self,
+            to: endpointPath,
+            in: context,
+            method: "POST",
+            query: [:],
+            body: payload
+        )
+    }
+
+    public func uploadPhoto(
+        in context: MBSessionContext,
+        imageData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> Portfolio.UploadedPhoto {
+        try await requester.uploadMultipart(
+            as: Portfolio.UploadedPhoto.self,
+            to: "photos",
+            in: context,
+            query: [:],
+            file: MBMultipartFile(
+                fieldName: "file",
+                filename: filename,
+                mimeType: mimeType,
+                data: imageData
+            )
+        )
+    }
+
+    public func loadClassPortfolioSettings(
+        in context: MBSessionContext,
+        programID: String
+    ) async throws -> Portfolio.Settings {
+        try await requester.loadObject(
+            as: Portfolio.Settings.self,
+            from: "school/programs/\(programID)/class_portfolio_settings",
+            in: context,
+            query: [:]
+        )
+    }
+}
+
+public extension MBPortfolioEndpoint {
+    func createClassNote<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse {
+        try await createClassResource(
+            in: context,
+            classID: classID,
+            kind: .notes,
+            payload: payload
+        )
+    }
+
+    func createClassPhoto<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse {
+        try await createClassResource(
+            in: context,
+            classID: classID,
+            kind: .photos,
+            payload: payload
         )
     }
 }

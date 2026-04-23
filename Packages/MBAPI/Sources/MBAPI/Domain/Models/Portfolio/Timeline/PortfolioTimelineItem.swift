@@ -82,6 +82,7 @@ public extension Portfolio {
             case labels
             case students
             case children
+            case assignedUsers = "assigned_users"
         }
 
         public init(from decoder: Decoder) throws {
@@ -95,7 +96,7 @@ public extension Portfolio {
             labels = TimelineItem.decodeLabelValues(from: container, forKey: .labels)
             attributedStudents = TimelineItem.decodeAttributedStudents(
                 from: container,
-                forKeys: [.students, .children]
+                forKeys: [.assignedUsers, .students, .children]
             )
         }
 
@@ -295,6 +296,7 @@ public extension Portfolio {
                 case canConnect = "can_connect"
                 case students
                 case children
+                case assignedUsers = "assigned_users"
             }
 
             public init(from decoder: Decoder) throws {
@@ -327,7 +329,7 @@ public extension Portfolio {
                 canConnect = try container.decodeIfPresent(Bool.self, forKey: .canConnect)
                 attributedStudents = TimelineItem.decodeAttributedStudents(
                     from: container,
-                    forKeys: [.students, .children]
+                    forKeys: [.assignedUsers, .students, .children]
                 )
             }
 

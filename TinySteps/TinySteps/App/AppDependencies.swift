@@ -86,7 +86,7 @@ final class AppDependencies {
             demoDataMode: demoDataMode
         )
 
-        let faceCaptureDraftStore: FaceCaptureDraftStore = InMemoryFaceCaptureDraftStore()
+        let faceCaptureDraftStore: FaceCaptureDraftStore = FileFaceCaptureDraftStore()
         let observationDraftStore: ObservationCaptureDraftStore = FileObservationCaptureDraftStore()
         let observationStandardTaggingService: ObservationStandardTaggingService = {
             if let configuration = LocalObservationStandardTaggingConfiguration.resolveEnabled() {
@@ -106,7 +106,10 @@ final class AppDependencies {
             faceEnrollmentStore: features.faceEnrollmentStore,
             faceCaptureDraftStore: faceCaptureDraftStore,
             observationDraftStore: observationDraftStore,
-            observationDraftPublisher: UnavailableObservationDraftPublisher(),
+            observationDraftPublisher: MBPortfolioReviewItemPublisher(
+                portfolioService: features.portfolioService,
+                classesService: features.classesService
+            ),
             observationTaggingService: DisabledObservationTaggingService(),
             observationStandardTaggingService: observationStandardTaggingService,
             standardsLoadingService: features.standardsLoadingService,

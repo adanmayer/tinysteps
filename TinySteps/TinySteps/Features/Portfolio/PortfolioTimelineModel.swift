@@ -274,7 +274,7 @@ final class PortfolioTimelineModel {
 private extension PortfolioStudent {
     init(member: MBMember) {
         self.init(
-            id: member.rosterStudentKey,
+            id: member.user.id,
             displayName: member.displayName,
             avatarURL: member.user.avatarURL
         )

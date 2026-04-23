@@ -95,6 +95,9 @@ struct TeacherHomeView: View {
                 draftStore: faceCaptureDraftStore,
                 onSaved: {
                     self.captureSession = nil
+                    Task {
+                        await refreshReviewDraftCount()
+                    }
                 }
             )
         }
@@ -155,6 +158,7 @@ struct TeacherHomeView: View {
             selectedContextTitle: selectedContextTitle,
             canShowClassSwitcher: canShowClassSwitcher,
             draftStore: observationDraftStore,
+            photoDraftStore: faceCaptureDraftStore,
             publisher: observationDraftPublisher,
             observationSpeechTranscriber: observationSpeechTranscriber,
             observationTaggingService: observationTaggingService,
@@ -194,7 +198,8 @@ struct TeacherHomeView: View {
 
         do {
             let drafts = try await observationDraftStore.loadDrafts(forClassID: classID)
-            reviewDraftCount = drafts.filter { $0.status == .savedForReview }.count
+            let photoDrafts = try await faceCaptureDraftStore.loadDrafts(forClassID: classID)
+            reviewDraftCount = drafts.filter { $0.status == .savedForReview }.count + photoDrafts.count
         } catch {
             reviewDraftCount = 0
         }

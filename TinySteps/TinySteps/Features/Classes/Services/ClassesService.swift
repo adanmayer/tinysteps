@@ -1,7 +1,7 @@
 import Foundation
 import MBAPI
 
-protocol ClassesService {
+protocol ClassesService: Sendable {
     func loadClasses(for session: AuthSession, childContext: ChildContext) async throws -> [MBClass]
     func loadClassTasks(
         for session: AuthSession,

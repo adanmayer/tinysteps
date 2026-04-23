@@ -4,6 +4,7 @@ import MBAPI
 struct ClassRosterStudent: Identifiable, Equatable, Sendable {
     let id: String
     let studentKey: String
+    let userID: String?
     let displayName: String
     let firstName: String
     let initials: String
@@ -11,6 +12,30 @@ struct ClassRosterStudent: Identifiable, Equatable, Sendable {
     let enrollmentStatus: FaceEnrollmentStatus
     let todayObservationCount: Int?
     let presence: ClassRosterPresence
+
+    init(
+        id: String,
+        studentKey: String,
+        userID: String? = nil,
+        displayName: String,
+        firstName: String,
+        initials: String,
+        avatarURL: URL?,
+        enrollmentStatus: FaceEnrollmentStatus,
+        todayObservationCount: Int?,
+        presence: ClassRosterPresence
+    ) {
+        self.id = id
+        self.studentKey = studentKey
+        self.userID = userID
+        self.displayName = displayName
+        self.firstName = firstName
+        self.initials = initials
+        self.avatarURL = avatarURL
+        self.enrollmentStatus = enrollmentStatus
+        self.todayObservationCount = todayObservationCount
+        self.presence = presence
+    }
 
     var isFaceEnrolled: Bool {
         if case .enrolled = enrollmentStatus {
@@ -55,6 +80,7 @@ struct ClassRosterStudent: Identifiable, Equatable, Sendable {
         return ClassRosterStudent(
             id: member.rosterStudentKey,
             studentKey: member.rosterStudentKey,
+            userID: member.user.id,
             displayName: fullName,
             firstName: member.firstNameFromDisplayName,
             initials: String(initials),

@@ -39,6 +39,7 @@ struct LocalObservationChildNameMatcher: ObservationChildNameMatching {
             let student = students[0]
             matchedByKey[student.studentKey] = ObservationMatchedChild(
                 studentKey: student.studentKey,
+                userID: student.userID,
                 displayName: student.displayName,
                 matchText: alias,
                 confidence: 1

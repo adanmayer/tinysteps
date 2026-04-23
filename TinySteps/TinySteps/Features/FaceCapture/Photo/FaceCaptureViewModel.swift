@@ -213,20 +213,24 @@ final class FaceCaptureViewModel: ObservableObject {
             imageData: imageData,
             faces: detectedFaces.map { face in
                 let studentKey: String?
+                let userID: String?
                 if case .matched(let key, _, _) = face.label {
                     studentKey = key
+                    userID = candidateStudents.first(where: { $0.studentKey == key })?.userID
                 } else {
                     studentKey = nil
+                    userID = nil
                 }
                 return FaceCaptureDraftFace(
                     faceID: face.id,
-                    bounds: (
+                    bounds: FaceCaptureDraftFaceBounds(
                         x: face.bounds.minX,
                         y: face.bounds.minY,
                         width: face.bounds.width,
                         height: face.bounds.height
                     ),
-                    studentKey: studentKey
+                    studentKey: studentKey,
+                    userID: userID
                 )
             }
         )

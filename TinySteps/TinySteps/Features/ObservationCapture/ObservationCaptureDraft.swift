@@ -121,18 +121,21 @@ enum ObservationDraftStatus: String, Codable, Equatable, Sendable {
 struct ObservationMatchedChild: Identifiable, Codable, Equatable, Sendable {
     let id: String
     let studentKey: String
+    let userID: String?
     let displayName: String
     let matchText: String
     let confidence: Double
 
     init(
         studentKey: String,
+        userID: String? = nil,
         displayName: String,
         matchText: String,
         confidence: Double = 1
     ) {
         self.id = studentKey
         self.studentKey = studentKey
+        self.userID = userID
         self.displayName = displayName
         self.matchText = matchText
         self.confidence = confidence

@@ -1059,6 +1059,7 @@ final class ObservationCaptureViewModel {
     private static func matchedChild(for student: ObservationRosterStudent) -> ObservationMatchedChild {
         ObservationMatchedChild(
             studentKey: student.studentKey,
+            userID: student.userID,
             displayName: student.displayName,
             matchText: student.displayName,
             confidence: 1

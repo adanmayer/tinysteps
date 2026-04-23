@@ -49,6 +49,7 @@ struct ObservationCaptureSession: Identifiable, Equatable, Sendable {
 struct ObservationRosterStudent: Identifiable, Codable, Equatable, Sendable {
     let id: String
     let studentKey: String
+    let userID: String?
     let displayName: String
     let firstName: String
     let initials: String
@@ -56,12 +57,14 @@ struct ObservationRosterStudent: Identifiable, Codable, Equatable, Sendable {
     init(
         id: String,
         studentKey: String,
+        userID: String? = nil,
         displayName: String,
         firstName: String,
         initials: String
     ) {
         self.id = id
         self.studentKey = studentKey
+        self.userID = userID
         self.displayName = displayName
         self.firstName = firstName
         self.initials = initials
@@ -71,6 +74,7 @@ struct ObservationRosterStudent: Identifiable, Codable, Equatable, Sendable {
         self.init(
             id: student.id,
             studentKey: student.studentKey,
+            userID: student.userID,
             displayName: student.displayName,
             firstName: student.firstName,
             initials: student.initials

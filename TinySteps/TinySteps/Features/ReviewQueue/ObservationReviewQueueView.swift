@@ -1,15 +1,17 @@
 import SwiftUI
 import MBAPI
+import UIKit
 
 struct ObservationReviewQueueView: View {
     @State private var model: ObservationReviewQueueModel
-    @State private var pendingDeleteDraft: ObservationCaptureDraft?
+    @State private var pendingDeleteItem: PortfolioReviewItem?
     @State private var editingDraft: ObservationCaptureDraft?
 
     private let selectedContextTitle: String
     private let session: AuthSession
     private let selectedClass: MBClass?
     private let draftStore: ObservationCaptureDraftStore
+    private let photoDraftStore: FaceCaptureDraftStore
     private let canShowClassSwitcher: Bool
     private let onShowClassSwitcher: () -> Void
     private let onDraftsChanged: (Int) -> Void
@@ -29,6 +31,7 @@ struct ObservationReviewQueueView: View {
         selectedContextTitle: String,
         canShowClassSwitcher: Bool,
         draftStore: ObservationCaptureDraftStore,
+        photoDraftStore: FaceCaptureDraftStore,
         publisher: ObservationDraftPublishing,
         observationSpeechTranscriber: ObservationSpeechTranscribing,
         observationTaggingService: ObservationTaggingService,
@@ -43,6 +46,7 @@ struct ObservationReviewQueueView: View {
         self.session = session
         self.selectedClass = selectedClass
         self.draftStore = draftStore
+        self.photoDraftStore = photoDraftStore
         self.canShowClassSwitcher = canShowClassSwitcher
         self.onShowClassSwitcher = onShowClassSwitcher
         self.onDraftsChanged = onDraftsChanged
@@ -66,7 +70,9 @@ struct ObservationReviewQueueView: View {
                 session: session,
                 classID: classID,
                 className: className,
+                selectedClass: selectedClass,
                 draftStore: draftStore,
+                photoDraftStore: photoDraftStore,
                 publisher: publisher
             )
         )
@@ -122,31 +128,31 @@ struct ObservationReviewQueueView: View {
         .confirmationDialog(
             "Delete this draft?",
             isPresented: Binding(
-                get: { pendingDeleteDraft != nil },
+                get: { pendingDeleteItem != nil },
                 set: { isPresented in
                     if isPresented == false {
-                        pendingDeleteDraft = nil
+                        pendingDeleteItem = nil
                     }
                 }
             ),
             titleVisibility: .visible
         ) {
             Button("Delete draft", role: .destructive) {
-                guard let draft = pendingDeleteDraft else {
+                guard let item = pendingDeleteItem else {
                     return
                 }
 
                 Task {
-                    await model.deleteDraft(draft.id)
+                    await model.deleteItem(item.id)
                     onDraftsChanged(model.reviewCount)
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the local observation draft from this device.")
+            Text("This removes the local review item from this device.")
         }
         .safeAreaInset(edge: .bottom) {
-            if model.filteredDrafts.isEmpty == false {
+            if model.filteredItems.isEmpty == false {
                 bulkPublishBar
             }
         }
@@ -190,9 +196,9 @@ struct ObservationReviewQueueView: View {
                 if model.isLoading {
                     ProgressView("Loading review queue…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if model.reviewDrafts.isEmpty {
+                } else if model.reviewItems.isEmpty {
                     emptyStateView
-                } else if model.filteredDrafts.isEmpty {
+                } else if model.filteredItems.isEmpty {
                     filteredEmptyStateView
                 } else {
                     draftFeed
@@ -300,25 +306,25 @@ struct ObservationReviewQueueView: View {
     private var draftFeed: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
-                ForEach(model.filteredDrafts) { draft in
-                    ObservationReviewDraftCard(
-                        draft: draft,
-                        isSeen: model.isSeen(draft.id),
-                        isActing: model.isActing(on: draft.id),
+                ForEach(model.filteredItems) { item in
+                    ObservationReviewItemCard(
+                        item: item,
+                        isSeen: model.isSeen(item.id),
+                        isActing: model.isActing(on: item.id),
                         onSeen: {
-                            model.markSeen(draft.id)
+                            model.markSeen(item.id)
                         },
                         onPublish: {
                             Task {
-                                await model.publish(draft.id)
+                                await model.publish(item.id)
                                 onDraftsChanged(model.reviewCount)
                             }
                         },
                         onEdit: {
-                            editingDraft = draft
+                            editingDraft = item.noteDraft
                         },
                         onDelete: {
-                            pendingDeleteDraft = draft
+                            pendingDeleteItem = item
                         }
                     )
                 }
@@ -533,6 +539,7 @@ struct ObservationReviewQueueView: View {
         ObservationRosterStudent(
             id: member.rosterStudentKey,
             studentKey: member.rosterStudentKey,
+            userID: member.user.id,
             displayName: member.displayName,
             firstName: member.firstNameFromDisplayName,
             initials: reviewDraftInitials(from: member.displayName)
@@ -553,6 +560,7 @@ struct ObservationReviewQueueView: View {
                 ObservationRosterStudent(
                     id: child.id,
                     studentKey: child.studentKey,
+                    userID: child.userID,
                     displayName: child.displayName,
                     firstName: firstName,
                     initials: Self.reviewDraftInitials(from: child.displayName)
@@ -572,8 +580,8 @@ struct ObservationReviewQueueView: View {
     }
 }
 
-private struct ObservationReviewDraftCard: View {
-    let draft: ObservationCaptureDraft
+private struct ObservationReviewItemCard: View {
+    let item: PortfolioReviewItem
     let isSeen: Bool
     let isActing: Bool
     let onSeen: () -> Void
@@ -582,7 +590,7 @@ private struct ObservationReviewDraftCard: View {
     let onDelete: () -> Void
 
     private var isReady: Bool {
-        ObservationReviewQueueModel.isReadyForPublish(draft)
+        ObservationReviewQueueModel.isReadyForPublish(item)
     }
 
     var body: some View {
@@ -593,7 +601,7 @@ private struct ObservationReviewDraftCard: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 header
-                transcript
+                content
                 tagSection
                 Divider()
                     .background(Color(hex: "#E6D8C2").opacity(0.7))
@@ -652,41 +660,73 @@ private struct ObservationReviewDraftCard: View {
         }
     }
 
-    private var transcript: some View {
-        Text(draft.transcript)
-            .font(.body)
-            .lineSpacing(7)
-            .foregroundStyle(Color(hex: "#3A342E"))
-            .lineLimit(5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("Observation draft")
+    @ViewBuilder
+    private var content: some View {
+        switch item.kind {
+        case .note:
+            if let draft = item.noteDraft {
+                Text(draft.transcript)
+                    .font(.body)
+                    .lineSpacing(7)
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .lineLimit(5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Observation draft")
+            }
+        case .photo:
+            if let photoDraft = item.photoDraft, let image = UIImage(data: photoDraft.imageData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 188)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.6)
+                    )
+                    .accessibilityLabel("Captured photo draft")
+            } else {
+                Label("Photo preview unavailable", systemImage: "photo")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Color(hex: "#A9772D"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     @ViewBuilder
     private var tagSection: some View {
-        let tags = draft.reviewTagValues
-        if tags.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    ReviewSkeletonChip(width: 132)
-                    ReviewSkeletonChip(width: 104)
-                }
+        switch item.kind {
+        case .note:
+            if let draft = item.noteDraft {
+                let tags = draft.reviewTagValues
+                if tags.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            ReviewSkeletonChip(width: 132)
+                            ReviewSkeletonChip(width: 104)
+                        }
 
-                Text(draft.pendingRetag ? "Tags catching up..." : "No tags yet")
-                    .font(.caption)
-                    .foregroundStyle(Color(hex: "#A9772D"))
-                    .italic()
-            }
-        } else {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
-                alignment: .leading,
-                spacing: 8
-            ) {
-                ForEach(tags, id: \.self) { tag in
-                    ReviewTagChip(label: tag)
+                        Text(draft.pendingRetag ? "Tags catching up..." : "No tags yet")
+                            .font(.caption)
+                            .foregroundStyle(Color(hex: "#A9772D"))
+                            .italic()
+                    }
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
+                        ForEach(tags, id: \.self) { tag in
+                            ReviewTagChip(label: tag)
+                        }
+                    }
                 }
             }
+        case .photo:
+            ReviewTagChip(label: "Photo")
         }
     }
 
@@ -696,11 +736,13 @@ private struct ObservationReviewDraftCard: View {
 
             Spacer(minLength: 8)
 
-            Button("Edit", action: onEdit)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Color(hex: "#3A342E"))
-                .buttonStyle(.plain)
-                .disabled(isActing)
+            if item.kind == .note {
+                Button("Edit", action: onEdit)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .buttonStyle(.plain)
+                    .disabled(isActing)
+            }
 
             Button(action: onPublish) {
                 Text(publishTitle)
@@ -722,28 +764,38 @@ private struct ObservationReviewDraftCard: View {
 
     private var avatarRow: some View {
         HStack(spacing: -8) {
-            ForEach(Array(draft.matchedChildren.prefix(4))) { child in
-                Text(child.displayName.reviewInitials)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Color(hex: "#3A342E"))
-                    .frame(width: 32, height: 32)
-                    .background(Color(hex: "#F5EDE0"))
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(Color(hex: "#8DA67A"), lineWidth: 1)
-                    )
-                    .accessibilityLabel(child.displayName)
-            }
+            if let draft = item.noteDraft {
+                ForEach(Array(draft.matchedChildren.prefix(4))) { child in
+                    Text(child.displayName.reviewInitials)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+                        .frame(width: 32, height: 32)
+                        .background(Color(hex: "#F5EDE0"))
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color(hex: "#8DA67A"), lineWidth: 1)
+                        )
+                        .accessibilityLabel(child.displayName)
+                }
 
-            if draft.matchedChildren.isEmpty {
+                if draft.matchedChildren.isEmpty {
+                    Image(systemName: "person.2")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#A89E8F"))
+                        .frame(width: 32, height: 32)
+                        .background(Color(hex: "#F5EDE0"))
+                        .clipShape(Circle())
+                        .accessibilityLabel("Class observation")
+                }
+            } else if let photoDraft = item.photoDraft {
                 Image(systemName: "person.2")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color(hex: "#A89E8F"))
                     .frame(width: 32, height: 32)
                     .background(Color(hex: "#F5EDE0"))
                     .clipShape(Circle())
-                    .accessibilityLabel("Class observation")
+                    .accessibilityLabel("\(photoDraft.faces.count) detected faces")
             }
         }
     }
@@ -766,6 +818,19 @@ private struct ObservationReviewDraftCard: View {
 
     private var accentColor: Color {
         isReady ? Color(hex: "#8DA67A") : Color(hex: "#E6B469")
+    }
+
+    private var draft: ObservationCaptureDraft {
+        item.noteDraft ?? ObservationCaptureDraft(
+            id: item.id,
+            classID: item.classID,
+            className: item.className,
+            transcript: "Photo",
+            pendingRetag: false,
+            status: .savedForReview,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt
+        )
     }
 }
 
@@ -888,6 +953,7 @@ private extension String {
             selectedContextTitle: "Blue Room",
             canShowClassSwitcher: true,
             draftStore: ObservationReviewPreviewStore(),
+            photoDraftStore: InMemoryFaceCaptureDraftStore(),
             publisher: UnavailableObservationDraftPublisher(),
             observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
             observationTaggingService: DisabledObservationTaggingService(),

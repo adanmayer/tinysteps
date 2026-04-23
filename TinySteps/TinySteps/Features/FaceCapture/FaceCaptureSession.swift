@@ -25,11 +25,13 @@ struct FaceCaptureSession: Identifiable {
 struct FaceCaptureStudentSnapshot: Identifiable, Sendable {
     let id: String
     let studentKey: String
+    let userID: String?
     let displayName: String
 
     init(from student: ClassRosterStudent) {
         self.id = student.studentKey
         self.studentKey = student.studentKey
+        self.userID = student.userID
         self.displayName = student.displayName
     }
 }

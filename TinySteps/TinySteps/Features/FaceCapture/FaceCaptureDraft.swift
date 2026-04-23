@@ -1,6 +1,7 @@
 import Foundation
+import CoreGraphics
 
-struct FaceCaptureDraft: Identifiable, Equatable {
+struct FaceCaptureDraft: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let classID: String
     let className: String
@@ -25,17 +26,28 @@ struct FaceCaptureDraft: Identifiable, Equatable {
     }
 }
 
-struct FaceCaptureDraftFace: Equatable, Sendable {
-    let faceID: UUID
-    let bounds: (x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat)
-    let studentKey: String?
+struct FaceCaptureDraftFaceBounds: Codable, Equatable, Sendable {
+    let x: CGFloat
+    let y: CGFloat
+    let width: CGFloat
+    let height: CGFloat
+}
 
-    static func == (lhs: FaceCaptureDraftFace, rhs: FaceCaptureDraftFace) -> Bool {
-        lhs.faceID == rhs.faceID &&
-        lhs.bounds.x == rhs.bounds.x &&
-        lhs.bounds.y == rhs.bounds.y &&
-        lhs.bounds.width == rhs.bounds.width &&
-        lhs.bounds.height == rhs.bounds.height &&
-        lhs.studentKey == rhs.studentKey
+struct FaceCaptureDraftFace: Codable, Equatable, Sendable {
+    let faceID: UUID
+    let bounds: FaceCaptureDraftFaceBounds
+    let studentKey: String?
+    let userID: String?
+
+    init(
+        faceID: UUID,
+        bounds: FaceCaptureDraftFaceBounds,
+        studentKey: String?,
+        userID: String? = nil
+    ) {
+        self.faceID = faceID
+        self.bounds = bounds
+        self.studentKey = studentKey
+        self.userID = userID
     }
 }

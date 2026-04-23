@@ -1,4 +1,5 @@
 import Foundation
+import MBAPI
 import Observation
 
 enum ObservationReviewFilter: String, CaseIterable, Identifiable, Sendable {
@@ -33,11 +34,15 @@ enum ObservationReviewFilter: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    func matches(_ draft: ObservationCaptureDraft) -> Bool {
+    func matches(_ item: PortfolioReviewItem) -> Bool {
         switch self {
-        case .all, .note:
+        case .all:
             return true
-        case .photo, .image, .video, .file, .website:
+        case .note:
+            return item.kind == .note
+        case .photo, .image:
+            return item.kind == .photo
+        case .video, .file, .website:
             return false
         }
     }
@@ -46,19 +51,21 @@ enum ObservationReviewFilter: String, CaseIterable, Identifiable, Sendable {
 @Observable
 @MainActor
 final class ObservationReviewQueueModel {
-    private(set) var drafts: [ObservationCaptureDraft] = []
+    private(set) var items: [PortfolioReviewItem] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var statusMessage: String?
-    private(set) var seenDraftIDs: Set<ObservationCaptureDraft.ID> = []
-    private(set) var actionDraftIDs: Set<ObservationCaptureDraft.ID> = []
+    private(set) var seenItemIDs: Set<PortfolioReviewItem.ID> = []
+    private(set) var actionItemIDs: Set<PortfolioReviewItem.ID> = []
     var selectedFilter: ObservationReviewFilter = .all
 
     let classID: String?
     let className: String
 
     private let session: AuthSession
+    private let selectedClass: MBClass?
     private let draftStore: ObservationCaptureDraftStore
+    private let photoDraftStore: FaceCaptureDraftStore
     private let publisher: ObservationDraftPublishing
     private var hasLoaded = false
 
@@ -66,13 +73,17 @@ final class ObservationReviewQueueModel {
         session: AuthSession,
         classID: String?,
         className: String,
+        selectedClass: MBClass?,
         draftStore: ObservationCaptureDraftStore,
+        photoDraftStore: FaceCaptureDraftStore,
         publisher: ObservationDraftPublishing
     ) {
         self.session = session
         self.classID = classID
         self.className = className
+        self.selectedClass = selectedClass
         self.draftStore = draftStore
+        self.photoDraftStore = photoDraftStore
         self.publisher = publisher
     }
 
@@ -80,20 +91,20 @@ final class ObservationReviewQueueModel {
         classID != nil
     }
 
-    var reviewDrafts: [ObservationCaptureDraft] {
-        drafts.filter { $0.status == .savedForReview }
+    var reviewItems: [PortfolioReviewItem] {
+        items
     }
 
-    var filteredDrafts: [ObservationCaptureDraft] {
-        reviewDrafts.filter { selectedFilter.matches($0) }
+    var filteredItems: [PortfolioReviewItem] {
+        reviewItems.filter { selectedFilter.matches($0) }
     }
 
     var reviewCount: Int {
-        reviewDrafts.count
+        reviewItems.count
     }
 
     var readyCount: Int {
-        reviewDrafts.filter(Self.isReadyForPublish).count
+        reviewItems.filter(Self.isReadyForPublish).count
     }
 
     var waitingCount: Int {
@@ -101,14 +112,14 @@ final class ObservationReviewQueueModel {
     }
 
     var seenReadyCount: Int {
-        reviewDrafts
+        reviewItems
             .filter(Self.isReadyForPublish)
-            .filter { seenDraftIDs.contains($0.id) }
+            .filter { seenItemIDs.contains($0.id) }
             .count
     }
 
     var canPublishSeen: Bool {
-        seenReadyCount > 0 && actionDraftIDs.isEmpty
+        seenReadyCount > 0 && actionItemIDs.isEmpty
     }
 
     func loadIfNeeded() async {
@@ -121,7 +132,7 @@ final class ObservationReviewQueueModel {
 
     func load() async {
         guard let classID else {
-            drafts = []
+            items = []
             hasLoaded = true
             errorMessage = nil
             statusMessage = nil
@@ -132,35 +143,40 @@ final class ObservationReviewQueueModel {
         errorMessage = nil
 
         do {
-            drafts = try await draftStore.loadDrafts(forClassID: classID)
+            let noteItems = try await draftStore.loadDrafts(forClassID: classID)
+                .filter { $0.status == .savedForReview }
+                .map(PortfolioReviewItem.init(noteDraft:))
+            let photoItems = try await photoDraftStore.loadDrafts(forClassID: classID)
+                .map(PortfolioReviewItem.init(photoDraft:))
+            items = (noteItems + photoItems).sorted { $0.updatedAt < $1.updatedAt }
             hasLoaded = true
-            seenDraftIDs = seenDraftIDs.intersection(Set(drafts.map(\.id)))
+            seenItemIDs = seenItemIDs.intersection(Set(items.map(\.id)))
         } catch {
-            drafts = []
+            items = []
             errorMessage = "Local review drafts are unavailable right now."
         }
 
         isLoading = false
     }
 
-    func markSeen(_ draftID: ObservationCaptureDraft.ID) {
-        seenDraftIDs.insert(draftID)
+    func markSeen(_ itemID: PortfolioReviewItem.ID) {
+        seenItemIDs.insert(itemID)
     }
 
-    func isSeen(_ draftID: ObservationCaptureDraft.ID) -> Bool {
-        seenDraftIDs.contains(draftID)
+    func isSeen(_ itemID: PortfolioReviewItem.ID) -> Bool {
+        seenItemIDs.contains(itemID)
     }
 
-    func isActing(on draftID: ObservationCaptureDraft.ID) -> Bool {
-        actionDraftIDs.contains(draftID)
+    func isActing(on itemID: PortfolioReviewItem.ID) -> Bool {
+        actionItemIDs.contains(itemID)
     }
 
     func saveForLater(_ draftID: ObservationCaptureDraft.ID) async {
-        guard var draft = reviewDrafts.first(where: { $0.id == draftID }) else {
+        guard var draft = reviewItems.first(where: { $0.id == draftID })?.noteDraft else {
             return
         }
 
-        actionDraftIDs.insert(draftID)
+        actionItemIDs.insert(draftID)
         statusMessage = nil
         errorMessage = nil
 
@@ -168,71 +184,76 @@ final class ObservationReviewQueueModel {
 
         do {
             _ = try await draftStore.saveDraft(draft)
-            replaceDraft(draft)
+            replaceItem(PortfolioReviewItem(noteDraft: draft))
             statusMessage = "Saved on this device."
         } catch {
             errorMessage = "This draft could not be saved right now."
         }
 
-        actionDraftIDs.remove(draftID)
+        actionItemIDs.remove(draftID)
     }
 
-    func deleteDraft(_ draftID: ObservationCaptureDraft.ID) async {
-        guard reviewDrafts.contains(where: { $0.id == draftID }) else {
+    func deleteItem(_ itemID: PortfolioReviewItem.ID) async {
+        guard let item = reviewItems.first(where: { $0.id == itemID }) else {
             return
         }
 
-        actionDraftIDs.insert(draftID)
+        actionItemIDs.insert(itemID)
         statusMessage = nil
         errorMessage = nil
 
         do {
-            try await draftStore.deleteDraft(id: draftID)
-            drafts.removeAll { $0.id == draftID }
-            seenDraftIDs.remove(draftID)
+            switch item.kind {
+            case .note:
+                try await draftStore.deleteDraft(id: itemID)
+            case .photo:
+                try await photoDraftStore.deleteDraft(id: itemID)
+            }
+            items.removeAll { $0.id == itemID }
+            seenItemIDs.remove(itemID)
             statusMessage = "Draft deleted."
         } catch {
             errorMessage = "This draft could not be deleted right now."
         }
 
-        actionDraftIDs.remove(draftID)
+        actionItemIDs.remove(itemID)
     }
 
-    func publish(_ draftID: ObservationCaptureDraft.ID) async {
-        guard let draft = reviewDrafts.first(where: { $0.id == draftID }) else {
+    func publish(_ itemID: PortfolioReviewItem.ID) async {
+        guard let item = reviewItems.first(where: { $0.id == itemID }) else {
             return
         }
 
         statusMessage = nil
         errorMessage = nil
 
-        guard Self.isReadyForPublish(draft) else {
+        guard Self.isReadyForPublish(item) else {
             statusMessage = "Tags are still catching up."
             return
         }
 
-        actionDraftIDs.insert(draftID)
+        actionItemIDs.insert(itemID)
 
         do {
-            try await publisher.publish(draft, session: session)
-            try await draftStore.deleteDraft(id: draftID)
-            drafts.removeAll { $0.id == draftID }
-            seenDraftIDs.remove(draftID)
+            try await publish(item)
+            try await deletePublishedItem(item)
+            items.removeAll { $0.id == itemID }
+            seenItemIDs.remove(itemID)
             statusMessage = "Published 1 moment."
         } catch {
             errorMessage = error.localizedDescription
         }
 
-        actionDraftIDs.remove(draftID)
+        actionItemIDs.remove(itemID)
     }
 
     func publishSeen() async {
         statusMessage = nil
         errorMessage = nil
 
-        let publishableIDs = reviewDrafts
+        let publishableIDs = reviewItems
             .filter(Self.isReadyForPublish)
-            .filter { seenDraftIDs.contains($0.id) }
+            .filter { seenItemIDs.contains($0.id) }
             .map(\.id)
 
         guard publishableIDs.isEmpty == false else {
@@ -241,24 +262,24 @@ final class ObservationReviewQueueModel {
         }
 
         var publishedCount = 0
-        for draftID in publishableIDs {
-            guard let draft = reviewDrafts.first(where: { $0.id == draftID }) else {
+        for itemID in publishableIDs {
+            guard let item = reviewItems.first(where: { $0.id == itemID }) else {
                 continue
             }
 
-            actionDraftIDs.insert(draftID)
+            actionItemIDs.insert(itemID)
             do {
-                try await publisher.publish(draft, session: session)
-                try await draftStore.deleteDraft(id: draftID)
-                drafts.removeAll { $0.id == draftID }
-                seenDraftIDs.remove(draftID)
+                try await publish(item)
+                try await deletePublishedItem(item)
+                items.removeAll { $0.id == itemID }
+                seenItemIDs.remove(itemID)
                 publishedCount += 1
             } catch {
                 errorMessage = error.localizedDescription
-                actionDraftIDs.remove(draftID)
+                actionItemIDs.remove(itemID)
                 break
             }
-            actionDraftIDs.remove(draftID)
+            actionItemIDs.remove(itemID)
         }
 
         if publishedCount > 0 {
@@ -266,18 +287,50 @@ final class ObservationReviewQueueModel {
         }
     }
 
-    static func isReadyForPublish(_ draft: ObservationCaptureDraft) -> Bool {
-        draft.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
-        draft.pendingRetag == false
+    static func isReadyForPublish(_ item: PortfolioReviewItem) -> Bool {
+        switch item.kind {
+        case .note:
+            guard let draft = item.noteDraft else {
+                return false
+            }
+            return draft.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+            draft.pendingRetag == false
+        case .photo:
+            return item.photoDraft?.imageData.isEmpty == false
+        }
     }
 
-    private func replaceDraft(_ draft: ObservationCaptureDraft) {
-        if let index = drafts.firstIndex(where: { $0.id == draft.id }) {
-            drafts[index] = draft
+    private func publish(_ item: PortfolioReviewItem) async throws {
+        switch item.kind {
+        case .note:
+            guard let draft = item.noteDraft else {
+                throw ObservationDraftPublishError.validation("This observation draft is incomplete. It stays on this device.")
+            }
+            try await publisher.publish(draft, session: session, selectedClass: selectedClass)
+        case .photo:
+            guard let draft = item.photoDraft else {
+                throw ObservationDraftPublishError.validation("This photo draft is incomplete. It stays on this device.")
+            }
+            try await publisher.publish(draft, session: session, selectedClass: selectedClass)
+        }
+    }
+
+    private func deletePublishedItem(_ item: PortfolioReviewItem) async throws {
+        switch item.kind {
+        case .note:
+            try await draftStore.deleteDraft(id: item.id)
+        case .photo:
+            try await photoDraftStore.deleteDraft(id: item.id)
+        }
+    }
+
+    private func replaceItem(_ item: PortfolioReviewItem) {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = item
         } else {
-            drafts.append(draft)
+            items.append(item)
         }
 
-        drafts.sort { $0.updatedAt < $1.updatedAt }
+        items.sort { $0.updatedAt < $1.updatedAt }
     }
 }

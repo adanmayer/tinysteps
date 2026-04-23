@@ -54,6 +54,30 @@ protocol MBEndpointRequesting: Sendable {
         query: [String: String],
         body: Data?
     ) async throws
+
+    func send<Response: Decodable, Body: Encodable>(
+        _ responseType: Response.Type,
+        to endpointPath: String,
+        in context: MBSessionContext,
+        method: String,
+        query: [String: String],
+        body: Body
+    ) async throws -> Response
+
+    func uploadMultipart<Response: Decodable>(
+        as responseType: Response.Type,
+        to endpointPath: String,
+        in context: MBSessionContext,
+        query: [String: String],
+        file: MBMultipartFile
+    ) async throws -> Response
+}
+
+struct MBMultipartFile: Sendable {
+    let fieldName: String
+    let filename: String
+    let mimeType: String
+    let data: Data
 }
 
 extension MBEndpointRequesting {
@@ -207,6 +231,70 @@ public extension MBClient {
         query: [String: String] = [:]
     ) async throws -> [Portfolio.TimelineItem] {
         try await portfolio.listTimeline(in: context, classID: classID, query: query)
+    }
+
+    public func createPortfolioClassResource<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        kind: Portfolio.ResourceKind,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse {
+        try await portfolio.createClassResource(
+            in: context,
+            classID: classID,
+            kind: kind,
+            payload: payload
+        )
+    }
+
+    public func createPortfolioClassNote<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse {
+        try await createPortfolioClassResource(
+            in: context,
+            classID: classID,
+            kind: .notes,
+            payload: payload
+        )
+    }
+
+    public func createPortfolioClassPhoto<Payload: Encodable>(
+        in context: MBSessionContext,
+        classID: String,
+        payload: Payload
+    ) async throws -> Portfolio.ResourceCreateResponse {
+        try await createPortfolioClassResource(
+            in: context,
+            classID: classID,
+            kind: .photos,
+            payload: payload
+        )
+    }
+
+    public func uploadPortfolioPhoto(
+        in context: MBSessionContext,
+        imageData: Data,
+        filename: String = "portfolio-photo.jpg",
+        mimeType: String = "image/jpeg"
+    ) async throws -> Portfolio.UploadedPhoto {
+        try await portfolio.uploadPhoto(
+            in: context,
+            imageData: imageData,
+            filename: filename,
+            mimeType: mimeType
+        )
+    }
+
+    public func loadClassPortfolioSettings(
+        in context: MBSessionContext,
+        programID: String
+    ) async throws -> Portfolio.Settings {
+        try await portfolio.loadClassPortfolioSettings(
+            in: context,
+            programID: programID
+        )
     }
 
     public func loadStandardsComponents(

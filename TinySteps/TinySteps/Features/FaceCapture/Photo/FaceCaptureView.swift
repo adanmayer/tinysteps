@@ -59,6 +59,7 @@ struct FaceCaptureView: View {
                             ClassRosterStudent(
                                 id: $0.studentKey,
                                 studentKey: $0.studentKey,
+                                userID: $0.userID,
                                 displayName: $0.displayName,
                                 firstName: $0.displayName,
                                 initials: "",
