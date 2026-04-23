@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import MBAPI
 
 struct ClassRosterView: View {
@@ -179,6 +180,7 @@ struct ClassRosterView: View {
                 Button("Clear cache") {
                     Task {
                         cacheStatusMessage = "Clearing local cache…"
+                        StudentAvatarImageCache.shared.removeAll()
                         await onClearCache()
                         cacheStatusMessage = "Local cache cleared."
                         try? await Task.sleep(nanoseconds: 2200_000_000)
@@ -350,51 +352,34 @@ struct ClassRosterTileView: View {
 
     var body: some View {
         Button(action: onTap) {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .top) {
                 VStack(spacing: 8) {
                     StudentAvatarView(
                         name: student.displayName,
                         initials: student.initials,
-                        avatarURL: student.avatarURL
+                        avatarURL: student.avatarURL,
+                        cacheKey: student.userID ?? student.studentKey
                     )
                     .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(Circle())
+                    .shadow(color: .black.opacity(0.14), radius: 8, x: 0, y: 4)
+                    .overlay(alignment: .bottomTrailing) {
+                        faceSetupIndicator
+                            .offset(x: 3, y: 3)
+                    }
 
                     Text(student.displayName)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(studentColor)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.horizontal, 4)
                         .minimumScaleFactor(0.7)
 
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(presenceColor)
-                            .frame(width: 6, height: 6)
-
-                        if student.needsFaceEnrollment {
-                            Text("Setup")
-                                .font(.footnote)
-                                .foregroundStyle(Color(hex: "#6E6456"))
-                                .lineLimit(1)
-                        } else {
-                            Text(student.observationCountText)
-                                .font(.footnote)
-                                .foregroundStyle(Color(hex: "#6E6456"))
-                        }
-                    }
+                    presenceIndicator
                 }
-                .frame(width: 106, height: 128)
-                .padding(.top, 6)
-
-                if student.needsFaceEnrollment {
-                    Text("?")
-                        .font(.caption2.weight(.heavy))
-                        .foregroundStyle(Color(hex: "#3A342E"))
-                        .frame(width: 24, height: 24)
-                        .background(Color(hex: "#E6B469"))
-                        .clipShape(Circle())
-                        .padding(8)
-                }
+                .frame(width: 106, height: 128, alignment: .top)
+                .padding(.top, 14)
             }
         }
         .buttonStyle(.plain)
@@ -410,6 +395,31 @@ struct ClassRosterTileView: View {
         )
         .opacity(student.presence == .notInToday ? 0.55 : 1.0)
         .accessibilityLabel(student.accessibilityLabel)
+    }
+
+    private var presenceIndicator: some View {
+        Circle()
+            .fill(presenceColor)
+            .frame(width: 10, height: 10)
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.75), lineWidth: 1)
+            )
+            .shadow(color: presenceColor.opacity(0.32), radius: 4, x: 0, y: 2)
+    }
+
+    private var faceSetupIndicator: some View {
+        Group {
+            if student.isFaceEnrolled {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: "#5F7F52"))
+                    .background(
+                        Circle()
+                            .fill(Color(hex: "#FFFDF8"))
+                    )
+            }
+        }
     }
 
     private var presenceColor: Color {
@@ -431,25 +441,91 @@ struct StudentAvatarView: View {
     let name: String
     let initials: String
     let avatarURL: URL?
+    let cacheKey: String
+
+    @State private var loadedImage: UIImage?
+    @State private var loadedImageKey: String?
+    @State private var isLoading = false
 
     var body: some View {
-        if let avatarURL {
-            AsyncImage(url: avatarURL) { phase in
-                switch phase {
-                case .empty:
-                    ProgressView()
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    placeholder
-                @unknown default:
-                    placeholder
-                }
+        Group {
+            if let loadedImage, loadedImageKey == avatarCacheKey {
+                Image(uiImage: loadedImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if isLoading {
+                placeholder
+                    .overlay {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+            } else {
+                placeholder
             }
-        } else {
-            placeholder
+        }
+        .task(id: avatarCacheKey) {
+            await loadAvatar()
+        }
+    }
+
+    private var avatarCacheKey: String? {
+        guard let avatarURL else {
+            return nil
+        }
+
+        let trimmedCacheKey = cacheKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stableIdentity = trimmedCacheKey.isEmpty ? name : trimmedCacheKey
+        return "\(stableIdentity)|\(avatarURL.host ?? "")|\(avatarURL.path)"
+    }
+
+    @MainActor
+    private func loadAvatar() async {
+        guard let avatarURL, let avatarCacheKey else {
+            loadedImage = nil
+            loadedImageKey = nil
+            isLoading = false
+            return
+        }
+
+        if loadedImageKey != avatarCacheKey {
+            loadedImage = nil
+            loadedImageKey = nil
+        }
+
+        if let cachedImage = StudentAvatarImageCache.shared.image(forKey: avatarCacheKey) {
+            loadedImage = cachedImage
+            loadedImageKey = avatarCacheKey
+            isLoading = false
+            return
+        }
+
+        isLoading = true
+        defer {
+            isLoading = false
+        }
+
+        do {
+            let request = URLRequest(url: avatarURL, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            if let httpResponse = response as? HTTPURLResponse,
+               (200..<300).contains(httpResponse.statusCode) == false {
+                return
+            }
+
+            guard let image = UIImage(data: data) else {
+                return
+            }
+
+            StudentAvatarImageCache.shared.set(image, forKey: avatarCacheKey)
+            loadedImage = image
+            loadedImageKey = avatarCacheKey
+        } catch {
+            loadedImage = nil
+            loadedImageKey = nil
         }
     }
 
@@ -461,5 +537,29 @@ struct StudentAvatarView: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Color(hex: "#3A342E"))
         }
+    }
+}
+
+private final class StudentAvatarImageCache: @unchecked Sendable {
+    static let shared = StudentAvatarImageCache()
+
+    private let cache = NSCache<NSString, UIImage>()
+
+    private init() {
+        cache.countLimit = 240
+        cache.totalCostLimit = 24 * 1024 * 1024
+    }
+
+    func image(forKey key: String) -> UIImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    func set(_ image: UIImage, forKey key: String) {
+        let cost = image.pngData()?.count ?? 1
+        cache.setObject(image, forKey: key as NSString, cost: cost)
+    }
+
+    func removeAll() {
+        cache.removeAllObjects()
     }
 }

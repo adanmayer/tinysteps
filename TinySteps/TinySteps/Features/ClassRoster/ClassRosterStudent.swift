@@ -65,10 +65,10 @@ struct ClassRosterStudent: Identifiable, Equatable, Sendable {
     }
 
     static func from(member: MBMember, status: FaceEnrollmentStatus, presence: ClassRosterPresence) -> ClassRosterStudent {
-        let fullName = member.displayName
+        let preferredDisplayName = member.preferredDisplayName
         let providedInitials = member.user.initials?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let fallbackInitials = String(
-            fullName
+            member.displayName
                 .split(separator: " ")
                 .compactMap { $0.first }
                 .map(String.init)
@@ -81,8 +81,8 @@ struct ClassRosterStudent: Identifiable, Equatable, Sendable {
             id: member.rosterStudentKey,
             studentKey: member.rosterStudentKey,
             userID: member.user.id,
-            displayName: fullName,
-            firstName: member.firstNameFromDisplayName,
+            displayName: preferredDisplayName,
+            firstName: preferredDisplayName,
             initials: String(initials),
             avatarURL: member.user.avatarURL,
             enrollmentStatus: status,

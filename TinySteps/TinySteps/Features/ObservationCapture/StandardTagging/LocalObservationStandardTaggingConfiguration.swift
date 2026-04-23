@@ -25,7 +25,7 @@ struct LocalObservationStandardTaggingConfiguration: Sendable {
     }
 
     static func defaultHost() -> URL {
-        URL(string: "http://10.1.39.14:11434") ?? URL(string: "http://127.0.0.1:11434")!
+        URL(string: "http://192.168.14.108:11434") ?? URL(string: "http://127.0.0.1:11434")!
     }
 
     static func resolveEnabled(

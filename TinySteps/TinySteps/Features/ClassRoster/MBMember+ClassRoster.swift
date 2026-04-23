@@ -14,6 +14,15 @@ extension MBMember {
         user.fullName
     }
 
+    var preferredDisplayName: String {
+        let firstName = firstNameFromDisplayName
+        if firstName.isEmpty {
+            return displayName
+        }
+
+        return firstName
+    }
+
     var firstNameFromDisplayName: String {
         let parts = user.fullName
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23,4 +32,3 @@ extension MBMember {
         return parts.first ?? user.fullName
     }
 }
-

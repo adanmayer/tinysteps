@@ -15,8 +15,11 @@ final class AppShellModel {
         case blockingError(String)
     }
 
+    private(set) var hasCompletedInitialRestore = false
+
     private let authController: AuthController
     private let navigationState: AppNavigationState
+    private var hasStarted = false
 
     init(
         authController: AuthController,
@@ -27,8 +30,15 @@ final class AppShellModel {
     }
 
     func start() {
+        guard !hasStarted else {
+            return
+        }
+
+        hasStarted = true
+
         Task {
             await authController.restoreSession()
+            hasCompletedInitialRestore = true
         }
     }
 

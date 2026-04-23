@@ -275,7 +275,7 @@ private extension PortfolioStudent {
     init(member: MBMember) {
         self.init(
             id: member.user.id,
-            displayName: member.displayName,
+            displayName: member.preferredDisplayName,
             avatarURL: member.user.avatarURL
         )
     }

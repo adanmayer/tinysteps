@@ -34,6 +34,7 @@ struct ClassPageTitleHeader: View {
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(Color(hex: "#3A342E"))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .minimumScaleFactor(0.82)
 
                 Text(classTitle.isEmpty ? "Choose a class" : classTitle)
@@ -41,6 +42,9 @@ struct ClassPageTitleHeader: View {
                     .foregroundStyle(Color(hex: "#6E6456"))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                    .padding(.vertical, 2)
             }
 
             Spacer(minLength: 12)

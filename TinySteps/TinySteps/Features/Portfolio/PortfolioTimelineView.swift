@@ -6,6 +6,7 @@ struct PortfolioTimelineView: View {
     @State private var selectedClassID: String?
     @State private var classScopes: [PortfolioClassScope]
     @State private var loadedClassScopesIdentity: String?
+    @State private var isShowingStudentFilterSheet = false
 
     private let session: AuthSession
     private let role: PortfolioTimelineRole
@@ -284,9 +285,11 @@ struct PortfolioTimelineView: View {
                 Capsule()
                     .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.6)
             )
+            .frame(maxWidth: .infinity)
 
             if role == .teacherStream {
-                studentSelectorMenu
+                studentFilterButton
+                    .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, 20)
@@ -294,37 +297,27 @@ struct PortfolioTimelineView: View {
         .padding(.bottom, role == .teacherStream ? 4 : 0)
     }
 
-    private var studentSelectorMenu: some View {
-        Menu {
-            Button {
-                model.selectStudent(nil)
-            } label: {
-                Label("All", systemImage: model.selectedStudentID == nil ? "checkmark" : "circle")
-            }
-
-            ForEach(model.students) { student in
-                Button {
-                    model.selectStudent(student.id)
-                } label: {
-                    Label(
-                        student.displayName,
-                        systemImage: model.selectedStudentID == student.id ? "checkmark" : "circle"
-                    )
-                }
-            }
+    private var studentFilterButton: some View {
+        Button {
+            isShowingStudentFilterSheet = true
         } label: {
             HStack(spacing: 8) {
+                selectedStudentFilterAvatar
+
                 Text(selectedStudentFilterTitle)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Color(hex: "#3A342E"))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "line.3.horizontal.decrease")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color(hex: "#6E6456"))
             }
             .padding(.horizontal, 13)
+            .frame(maxWidth: .infinity)
             .frame(height: 44)
             .background(Color(hex: "#FFFDF8"))
             .clipShape(Capsule())
@@ -335,6 +328,35 @@ struct PortfolioTimelineView: View {
             )
         }
         .buttonStyle(.plain)
+        .sheet(isPresented: $isShowingStudentFilterSheet) {
+            PortfolioStudentFilterSheet(
+                students: model.students,
+                selectedStudentID: model.selectedStudentID,
+                onSelect: { studentID in
+                    model.selectStudent(studentID)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedStudentFilterAvatar: some View {
+        if let student = model.selectedStudent {
+            StudentAvatarView(
+                name: student.displayName,
+                initials: student.initials,
+                avatarURL: student.avatarURL,
+                cacheKey: student.id
+            )
+            .frame(width: 24, height: 24)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+            )
+        }
     }
 
     private var studentFilterStrip: some View {
@@ -344,6 +366,7 @@ struct PortfolioTimelineView: View {
                     title: "All",
                     initials: "All",
                     avatarURL: nil,
+                    avatarCacheKey: "all-students",
                     isSelected: model.selectedStudentID == nil
                 ) {
                     model.selectStudent(nil)
@@ -354,6 +377,7 @@ struct PortfolioTimelineView: View {
                         title: student.displayName,
                         initials: student.initials,
                         avatarURL: student.avatarURL,
+                        avatarCacheKey: student.id,
                         isSelected: model.selectedStudentID == student.id
                     ) {
                         model.selectStudent(student.id)
@@ -434,7 +458,7 @@ struct PortfolioTimelineView: View {
             return "All"
         }
 
-        return student.initials.isEmpty ? "Student" : student.initials
+        return student.displayName.isEmpty ? "Student" : student.displayName
     }
 
     private var childContextIdentity: String {
@@ -489,12 +513,138 @@ struct PortfolioTimelineView: View {
     }
 }
 
+private struct PortfolioStudentFilterSheet: View {
+    let students: [PortfolioStudent]
+    let selectedStudentID: PortfolioStudent.ID?
+    let onSelect: (PortfolioStudent.ID?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    allStudentsRow
+
+                    ForEach(students) { student in
+                        studentRow(student)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 28)
+            }
+            .background(Color(hex: "#FBF6EE").ignoresSafeArea())
+            .navigationTitle("Filter students")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var allStudentsRow: some View {
+        Button {
+            select(nil)
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color(hex: "#F5EDE0"))
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#6B8659"))
+                }
+                .frame(width: 36, height: 36)
+
+                Text("All")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+
+                Spacer()
+
+                selectionIndicator(isSelected: selectedStudentID == nil)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 58)
+            .background(rowBackground(isSelected: selectedStudentID == nil))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show all students")
+    }
+
+    private func studentRow(_ student: PortfolioStudent) -> some View {
+        let isSelected = selectedStudentID == student.id
+
+        return Button {
+            select(student.id)
+        } label: {
+            HStack(spacing: 12) {
+                StudentAvatarView(
+                    name: student.displayName,
+                    initials: student.initials,
+                    avatarURL: student.avatarURL,
+                    cacheKey: student.id
+                )
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+                )
+
+                Text(student.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer()
+
+                selectionIndicator(isSelected: isSelected)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 58)
+            .background(rowBackground(isSelected: isSelected))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show moments for \(student.displayName)")
+    }
+
+    private func select(_ studentID: PortfolioStudent.ID?) {
+        onSelect(studentID)
+        dismiss()
+    }
+
+    private func selectionIndicator(isSelected: Bool) -> some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 19, weight: .semibold))
+            .foregroundStyle(isSelected ? Color(hex: "#6B8659") : Color(hex: "#D4C7B6"))
+    }
+
+    private func rowBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 18)
+            .fill(Color(hex: "#FFFDF8"))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(isSelected ? Color(hex: "#6B8659") : Color(hex: "#E6D8C2"), lineWidth: isSelected ? 1.4 : 0.7)
+            )
+    }
+}
+
 private struct PortfolioStudentFilterButton: View {
     let title: String
     let initials: String
     let avatarURL: URL?
+    let avatarCacheKey: String
     let isSelected: Bool
     let action: () -> Void
+    private let avatarDimension: CGFloat = 24
+    private let titleHorizontalInset: CGFloat = 6
 
     var body: some View {
         Button(action: action) {
@@ -506,6 +656,7 @@ private struct PortfolioStudentFilterButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .frame(width: 58)
+                    .padding(.horizontal, titleHorizontalInset)
             }
         }
         .buttonStyle(.plain)
@@ -514,25 +665,19 @@ private struct PortfolioStudentFilterButton: View {
 
     @ViewBuilder
     private var avatar: some View {
-        if let avatarURL {
-            AsyncImage(url: avatarURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .empty, .failure:
-                    initialsView
-                @unknown default:
-                    initialsView
-                }
-            }
-            .frame(width: 42, height: 42)
+        if avatarURL != nil {
+            StudentAvatarView(
+                name: title,
+                initials: initials,
+                avatarURL: avatarURL,
+                cacheKey: avatarCacheKey
+            )
+            .frame(width: avatarDimension, height: avatarDimension)
             .clipShape(Circle())
             .overlay(avatarBorder)
         } else {
             initialsView
-                .frame(width: 42, height: 42)
+                .frame(width: avatarDimension, height: avatarDimension)
                 .overlay(avatarBorder)
         }
     }
@@ -541,7 +686,7 @@ private struct PortfolioStudentFilterButton: View {
         Text(initials)
             .font(.caption.weight(.bold))
             .foregroundStyle(Color(hex: "#3A342E"))
-            .frame(width: 42, height: 42)
+            .frame(width: avatarDimension, height: avatarDimension)
             .background(isSelected ? Color(hex: "#8DA67A").opacity(0.18) : Color(hex: "#FFFDF8"))
             .clipShape(Circle())
     }

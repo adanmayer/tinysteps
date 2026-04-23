@@ -134,6 +134,7 @@ public struct MBMemberUser: Codable, Equatable, Sendable {
         case fullName = "full_name"
         case email
         case avatarURL = "avatar_url"
+        case photoURL = "photo_url"
         case initials
         case role
     }
@@ -144,8 +145,19 @@ public struct MBMemberUser: Codable, Equatable, Sendable {
         fullName = try container.decode(String.self, forKey: .fullName)
         email = try container.decodeIfPresent(String.self, forKey: .email)
         avatarURL = try container.decodeIfPresent(URL.self, forKey: .avatarURL)
+            ?? container.decodeIfPresent(URL.self, forKey: .photoURL)
         initials = try container.decodeIfPresent(String.self, forKey: .initials)
         role = try container.decodeIfPresent(String.self, forKey: .role)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(fullName, forKey: .fullName)
+        try container.encodeIfPresent(email, forKey: .email)
+        try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
+        try container.encodeIfPresent(initials, forKey: .initials)
+        try container.encodeIfPresent(role, forKey: .role)
     }
 }
 

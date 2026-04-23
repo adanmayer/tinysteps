@@ -95,9 +95,14 @@ struct PortfolioEntry: Identifiable, Equatable, Sendable {
     let media: PortfolioEntryMedia?
     let tags: [String]
     let attributedStudents: [PortfolioStudent]
+    let isAssignedToAllStudents: Bool
     let sourceStatus: String?
 
     func isAttributed(to studentID: PortfolioStudent.ID) -> Bool {
-        attributedStudents.contains { $0.id == studentID }
+        if isAssignedToAllStudents {
+            return true
+        }
+
+        return attributedStudents.contains { $0.id == studentID }
     }
 }

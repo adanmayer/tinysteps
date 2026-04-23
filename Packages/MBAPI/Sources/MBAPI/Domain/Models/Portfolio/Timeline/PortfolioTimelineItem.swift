@@ -11,6 +11,7 @@ public extension Portfolio {
         public let logable: Logable
         public let labels: [String]
         public let attributedStudents: [AttributedStudent]
+        public let assignedToAllStudents: Bool
 
         public init(
             id: String,
@@ -19,7 +20,8 @@ public extension Portfolio {
             createdAt: String? = nil,
             logable: Logable,
             labels: [String] = [],
-            attributedStudents: [AttributedStudent] = []
+            attributedStudents: [AttributedStudent] = [],
+            assignedToAllStudents: Bool = false
         ) {
             self.id = id
             self.logableType = logableType
@@ -28,6 +30,7 @@ public extension Portfolio {
             self.logable = logable
             self.labels = labels
             self.attributedStudents = attributedStudents
+            self.assignedToAllStudents = assignedToAllStudents
         }
 
         public var explicitAttributedStudents: [AttributedStudent] {
@@ -36,6 +39,10 @@ public extension Portfolio {
             }
 
             return logable.attributedStudents
+        }
+
+        public var isAssignedToAllStudents: Bool {
+            assignedToAllStudents || logable.assignedToAllStudents
         }
 
         public var title: String {
@@ -83,6 +90,7 @@ public extension Portfolio {
             case students
             case children
             case assignedUsers = "assigned_users"
+            case assignedUserIDs = "assigned_user_ids"
         }
 
         public init(from decoder: Decoder) throws {
@@ -97,6 +105,10 @@ public extension Portfolio {
             attributedStudents = TimelineItem.decodeAttributedStudents(
                 from: container,
                 forKeys: [.assignedUsers, .students, .children]
+            )
+            assignedToAllStudents = TimelineItem.decodeEmptyAssignmentArray(
+                from: container,
+                forKeys: [.assignedUsers, .assignedUserIDs]
             )
         }
 
@@ -125,6 +137,7 @@ public extension Portfolio {
             public let canLike: Bool?
             public let canExport: Bool?
             public let attributedStudents: [AttributedStudent]
+            public let assignedToAllStudents: Bool
 
             public var note: NoteItem? {
                 guard isNote else {
@@ -242,7 +255,8 @@ public extension Portfolio {
                 canStar: Bool? = nil,
                 canLike: Bool? = nil,
                 canExport: Bool? = nil,
-                attributedStudents: [AttributedStudent] = []
+                attributedStudents: [AttributedStudent] = [],
+                assignedToAllStudents: Bool = false
             ) {
                 self.id = id
                 self.gid = gid
@@ -268,6 +282,7 @@ public extension Portfolio {
                 self.canLike = canLike
                 self.canExport = canExport
                 self.attributedStudents = attributedStudents
+                self.assignedToAllStudents = assignedToAllStudents
             }
 
             private enum CodingKeys: String, CodingKey {
@@ -297,6 +312,7 @@ public extension Portfolio {
                 case students
                 case children
                 case assignedUsers = "assigned_users"
+                case assignedUserIDs = "assigned_user_ids"
             }
 
             public init(from decoder: Decoder) throws {
@@ -330,6 +346,10 @@ public extension Portfolio {
                 attributedStudents = TimelineItem.decodeAttributedStudents(
                     from: container,
                     forKeys: [.assignedUsers, .students, .children]
+                )
+                assignedToAllStudents = TimelineItem.decodeEmptyAssignmentArray(
+                    from: container,
+                    forKeys: [.assignedUsers, .assignedUserIDs]
                 )
             }
 
@@ -942,6 +962,27 @@ public extension Portfolio {
             }
 
             return []
+        }
+
+        private static func decodeEmptyAssignmentArray<C: CodingKey>(
+            from container: KeyedDecodingContainer<C>,
+            forKeys keys: [C]
+        ) -> Bool {
+            for key in keys where container.contains(key) {
+                if let students = try? container.decode([AttributedStudent].self, forKey: key) {
+                    return students.isEmpty
+                }
+
+                if let ids = try? container.decode([Int].self, forKey: key) {
+                    return ids.isEmpty
+                }
+
+                if let ids = try? container.decode([String].self, forKey: key) {
+                    return ids.isEmpty
+                }
+            }
+
+            return false
         }
 
         private struct DecodableLabelValue: Decodable {

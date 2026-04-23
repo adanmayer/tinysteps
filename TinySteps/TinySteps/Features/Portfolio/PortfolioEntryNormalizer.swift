@@ -32,6 +32,7 @@ enum PortfolioEntryNormalizer {
             media: normalizedMedia(for: item, kind: kind, title: title),
             tags: normalizedTags(for: item),
             attributedStudents: normalizedStudents(for: item),
+            isAssignedToAllStudents: item.isAssignedToAllStudents,
             sourceStatus: item.status
         )
     }

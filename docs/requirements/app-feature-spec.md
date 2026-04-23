@@ -421,8 +421,8 @@ Every safeguarding feature in this section is a compliance requirement, but the 
 
 Child voice is the feature that, more than any other, makes the parent cry. The treatment has to earn that.
 
-- A child-voice clip renders as a pull-out card sized larger than the surrounding teacher-observation card, with the child's avatar on the left and the waveform as a soft horizontal pulse, not a spiky audio-editor trace. The header reads *"In Amara's words"* in the app's accent colour. There is no *"Play"* button — tapping anywhere on the card plays inline, with a circular progress ring around the avatar.
-- Clips autoplay **only** when the parent has explicitly scrolled them into full view and held there for 1.5s. Never on open. Never on notification. A parent at a bus stop does not want their child's voice broadcast from their phone.
+- A child-voice clip renders as a pull-out card sized larger than the surrounding teacher-observation card, with the child's avatar or play control on the left and the waveform as a soft horizontal pulse, not a spiky audio-editor trace. The header reads *"In Amara's words"* in the app's accent colour. Playback is always explicit: the parent taps the play control or card to listen, with a circular progress ring around the avatar/control.
+- Clips never autoplay. Not on open, not on scroll, not after a visibility timer, and not from a notification. A parent at a bus stop does not want their child's voice broadcast from their phone.
 - Transcripts appear under the waveform in italic, slightly smaller, in the child's exact words (not cleaned up). Misrecognitions are left in place — the imperfection is the point. Long-press reveals the untranslated source if the parent is reading a translation.
 - Per-guardian locale translation of transcripts (if opt-in) is a rendering concern, not a data concern — **the untranslated transcript is the source of truth**.
 

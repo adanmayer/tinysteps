@@ -1,4 +1,5 @@
 import Foundation
+import MBAPI
 import Testing
 @testable import TinySteps
 
@@ -30,7 +31,9 @@ struct ObservationReviewQueueModelTests {
             session: .previewTeacher,
             classID: "blue-room",
             className: "Blue Room",
+            selectedClass: nil,
             draftStore: store,
+            photoDraftStore: InMemoryFaceCaptureDraftStore(),
             publisher: SucceedingObservationDraftPublisher()
         )
 
@@ -51,7 +54,9 @@ struct ObservationReviewQueueModelTests {
             session: .previewTeacher,
             classID: "blue-room",
             className: "Blue Room",
+            selectedClass: nil,
             draftStore: store,
+            photoDraftStore: InMemoryFaceCaptureDraftStore(),
             publisher: UnavailableObservationDraftPublisher()
         )
 
@@ -74,7 +79,9 @@ struct ObservationReviewQueueModelTests {
             session: .previewTeacher,
             classID: "blue-room",
             className: "Blue Room",
+            selectedClass: nil,
             draftStore: store,
+            photoDraftStore: InMemoryFaceCaptureDraftStore(),
             publisher: SucceedingObservationDraftPublisher()
         )
 
@@ -94,7 +101,15 @@ private struct SucceedingObservationDraftPublisher: ObservationDraftPublishing {
 
     func publish(
         _ draft: ObservationCaptureDraft,
-        session: AuthSession
+        session: AuthSession,
+        selectedClass: MBClass?
+    ) async throws {
+    }
+
+    func publish(
+        _ draft: FaceCaptureDraft,
+        session: AuthSession,
+        selectedClass: MBClass?
     ) async throws {
     }
 }

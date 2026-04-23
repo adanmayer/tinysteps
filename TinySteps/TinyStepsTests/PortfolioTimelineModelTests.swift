@@ -126,6 +126,47 @@ struct PortfolioTimelineModelTests {
         #expect(model.emptyDescription.contains("explicit student attribution"))
     }
 
+    @Test("Selected student filter treats empty assigned user IDs as all students")
+    func selectedStudentFilteringTreatsEmptyAssignedUserIDsAsAllStudents() async throws {
+        let data = """
+        {
+          "id": "moment-all-students",
+          "logable_type": "note",
+          "status": "published",
+          "created_at": "2026-04-22T07:30:00Z",
+          "assigned_user_ids": [],
+          "logable": {
+            "id": "moment-all-students-log",
+            "kind": "note",
+            "body": "Shared with the whole class."
+          }
+        }
+        """.data(using: .utf8)!
+
+        let item = try JSONDecoder().decode(MBAPI.Portfolio.TimelineItem.self, from: data)
+        let entry = PortfolioEntryNormalizer.normalize(item)
+        let model = PortfolioTimelineModel(
+            session: .previewTeacher,
+            role: .teacherStream,
+            portfolioService: FakePortfolioService(items: [item]),
+            classesService: FakePortfolioClassesService()
+        )
+
+        #expect(item.isAssignedToAllStudents)
+        #expect(entry.isAssignedToAllStudents)
+
+        await model.loadIfNeeded(
+            classID: "blue-room",
+            childContext: .allChildren,
+            availableChildren: []
+        )
+
+        model.selectRange(.all)
+        model.selectStudent("child-1")
+
+        #expect(model.filteredEntries.map(\.id) == ["moment-all-students"])
+    }
+
     @Test("Parent student filters follow selected child context")
     func parentStudentFiltersFollowSelectedChildContext() async throws {
         let children = [
@@ -216,6 +257,38 @@ private struct FakePortfolioService: PortfolioService {
         query: [String: String]
     ) async throws -> [MBAPI.Portfolio.TimelineItem] {
         items
+    }
+
+    func createClassNote(
+        for session: AuthSession,
+        classID: String,
+        payload: PortfolioNoteCreatePayload
+    ) async throws -> MBAPI.Portfolio.ResourceCreateResponse {
+        MBAPI.Portfolio.ResourceCreateResponse(id: "created-note")
+    }
+
+    func uploadPhoto(
+        for session: AuthSession,
+        imageData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> MBAPI.Portfolio.UploadedPhoto {
+        MBAPI.Portfolio.UploadedPhoto(id: "uploaded-photo")
+    }
+
+    func createClassPhoto(
+        for session: AuthSession,
+        classID: String,
+        payload: PortfolioPhotoCreatePayload
+    ) async throws -> MBAPI.Portfolio.ResourceCreateResponse {
+        MBAPI.Portfolio.ResourceCreateResponse(id: "created-photo")
+    }
+
+    func loadClassPortfolioSettings(
+        for session: AuthSession,
+        programID: String
+    ) async throws -> MBAPI.Portfolio.Settings {
+        MBAPI.Portfolio.Settings(id: "settings")
     }
 }
 

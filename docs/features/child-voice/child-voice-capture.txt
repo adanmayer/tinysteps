@@ -1,0 +1,32 @@
+This is the T10 — Child-Voice Capture screen of TinySteps. The teacher has handed the phone to the child for a consent-gated voice moment. Consent-as-pedagogy — this is a tender visual handover. 390px wide mobile iPhone. Light mode.
+
+Page background is full-bleed PALE SAND #F5EDE0 (card-bg-elevated) — the softer warmer overlay signals "we've left teacher chrome behind". A very soft honey-gold #E6B469 radial glow (20% opacity, 280px radius) emanates from the centre.
+
+LAYOUT top to bottom:
+
+1. Status bar safe area.
+
+2. Tiny top-bar (16px top, 20px horizontal): only a 44pt "×" Cancel button on the top-left (outline Lucide, card-bg #FFFDF8 circle, warm shadow). Nothing on the right — the teacher chrome is gone.
+
+3. CONSENT BANNER (20px top gap, 20px horizontal): a card-bg #FFFDF8 card, 22px radius, 18px padding, warm outer shadow. Inside, a small rounded square avatar of Amara (48pt, warm vignette) on the left. Text on the right: title "Amara said yes" 18px Semi-Bold warm charcoal. Below: "Pass the phone to Amara and let her tell you something." 14px Regular soft olive-brown, line-height 1.5. A small honey-gold #E6B469 14px check-circle icon sits inline before the title.
+
+4. Centre hero — CHILD-VOICE RECORDER (generous whitespace, 48px top gap):
+   - A BIG soft cartoon microphone illustration in honey-gold + sage tones, hand-drawn style, 160pt square. The microphone has a friendly smile and slightly offset eyes — warm, not childish-cartoonish. It sits on a soft cream halo.
+   - Below it (32px gap): the RECORD BUTTON, swelled 1.4× from the teacher record button. 124pt diameter circle. Sage gradient #8DA67A → #6B8659. White Lucide mic icon 40pt centered. A honey-gold 2px outer ring (at 6px offset) encircles the record button — celebratory not alarming. A soft honey-gold bloom (24px blur) breathes around it.
+   - Below button (20px gap): "Tap the microphone to begin" 17px Medium warm charcoal, centered. A tiny 13px subtitle in honey-gold italic "In Amara's words".
+
+5. Duration + caption strip (32px top gap, 20px horizontal):
+   - Live duration counter centred: "0:00" 32px Medium warm charcoal, letter-spacing -0.3 (monospaced figures). Below it: "Up to 30 seconds" 11px Regular soft olive-brown.
+   - A thin sage progress track below (2pt tall, 60% width, centered, full pill radius, pale-sand fill, sage fill segment from 0).
+   - Live caption strip below (12px top gap): a single line of italic 15px warm charcoal on-device STT text. Placeholder shows a ghost caret ▋ blinking. No text yet. Caption is centered.
+
+6. Bottom safe-area footer:
+   - Two subservient 48pt tall pill buttons stacked (or side-by-side) with 16px gap above home indicator.
+   - "Done" button — card-bg #FFFDF8 fill, sage 1.5px border, sage 16px Semi-Bold label, full-width, centered. (Disabled state at rest — full opacity when recording completes.)
+   - "Cancel" text link below — 15px Medium warm charcoal (underlined), centered.
+
+7. Soft background decoration: two faint honey-gold dotted path strokes curving inward from top-left and bottom-right corners — at 6% opacity. Signals "journey moment" subtly.
+
+NO TAB BAR. The capture takeover is full-screen.
+
+VISUAL FEEL: a tender hand-over. The teacher chrome has dissolved; the pale-sand overlay and cartoon mic tell the child "this is your moment". Honey gold frames it as celebration, not recording surveillance. Warm shadows only. Rounded corners. Never pure white.

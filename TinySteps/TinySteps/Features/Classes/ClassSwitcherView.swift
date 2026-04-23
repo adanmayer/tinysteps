@@ -65,11 +65,16 @@ struct ClassSwitcherView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(option.title)
                                     .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .padding(.vertical, 2)
 
                                 if let subtitle = option.subtitle {
                                     Text(subtitle)
                                         .font(.footnote)
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
                                 }
                             }
 

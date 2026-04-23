@@ -507,13 +507,14 @@ struct ObservationReviewQueueView: View {
     }
 
     private static func observationRosterStudent(from member: MBMember) -> ObservationRosterStudent {
-        ObservationRosterStudent(
+        let displayName = member.preferredDisplayName
+        return ObservationRosterStudent(
             id: member.rosterStudentKey,
             studentKey: member.rosterStudentKey,
             userID: member.user.id,
-            displayName: member.displayName,
-            firstName: member.firstNameFromDisplayName,
-            initials: reviewDraftInitials(from: member.displayName)
+            displayName: displayName,
+            firstName: displayName,
+            initials: reviewDraftInitials(from: displayName)
         )
     }
 

@@ -19,11 +19,13 @@ struct SignedInRootView: View {
     private let standardsLoadingService: MBStandardsLoadingService
     private let observationSpeechTranscriber: ObservationSpeechTranscribing
     private let observationChildMatcher: ObservationChildNameMatching
+    private let onInitialLoadCompleted: () -> Void
     private let onSignOut: () -> Void
 
     init(
         session: AuthSession,
         dependencies: AppDependencies,
+        onInitialLoadCompleted: @escaping () -> Void,
         onSignOut: @escaping () -> Void
     ) {
         _sessionModel = State(
@@ -49,6 +51,7 @@ struct SignedInRootView: View {
         self.standardsLoadingService = dependencies.standardsLoadingService
         self.observationSpeechTranscriber = dependencies.observationSpeechTranscriber
         self.observationChildMatcher = dependencies.observationChildMatcher
+        self.onInitialLoadCompleted = onInitialLoadCompleted
         self.onSignOut = onSignOut
     }
 
@@ -154,6 +157,9 @@ struct SignedInRootView: View {
         }
         .task {
             await sessionModel.loadIfNeeded()
+            await MainActor.run {
+                onInitialLoadCompleted()
+            }
         }
     }
 
