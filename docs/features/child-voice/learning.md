@@ -12,9 +12,9 @@
 - [x] 3. Extend review queue payload support to carry optional `audio_description_id` on note and photo payloads.
 - [x] 4. Add child voice draft capture module (audio recorder + child selection + temporary persistence).
 - [x] 5. Wire image-flow attachment of child voice to `FaceCaptureDraft` + disable states.
-- [ ] 6. Add class-gear “Capture Child Voice” entry and direct flow into child voice draft.
-- [ ] 7. Integrate audio upload into publish path (note + photo), using fixed note body and child assignment fallback.
-- [ ] 8. Add stream rendering for child-voice card with role-specific prompt and no autoplay.
+- [x] 6. Add class-gear “Capture Child Voice” entry and direct flow into child voice draft.
+- [x] 7. Integrate audio upload into publish path (note + photo), using fixed note body and child assignment fallback.
+- [x] 8. Add stream rendering for child-voice card with role-specific prompt and no autoplay.
 - [ ] 9. Validate edge cases: empty assignment array means all students, one-child enforcement, and upload failures.
 
 ## Decisions
@@ -24,4 +24,4 @@
 - Keep this as hackathon scope: local drafts persist until publish.
 
 ## Current step
-- Step 6 in progress: Add class-gear “Capture Child Voice” entry and direct flow into child voice draft.
+- Step 9: Validate edge cases: empty assignment array means all students, one-child enforcement, and upload failures.

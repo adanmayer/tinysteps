@@ -12,6 +12,7 @@ struct ClassRosterView: View {
     let onSignOut: () -> Void
     let onCaptureImage: ([ClassRosterStudent]) -> Void
     let onCaptureObservation: (ObservationCaptureLaunchContext) -> Void
+    let onCaptureChildVoice: ([ClassRosterStudent]) -> Void
     let onClearCache: () async -> Void
     let canShowClassSwitcher: Bool
     let onTapStudent: (ClassRosterStudent) -> Void
@@ -35,6 +36,7 @@ struct ClassRosterView: View {
         onSignOut: @escaping () -> Void,
         onCaptureImage: @escaping ([ClassRosterStudent]) -> Void,
         onCaptureObservation: @escaping (ObservationCaptureLaunchContext) -> Void,
+        onCaptureChildVoice: @escaping ([ClassRosterStudent]) -> Void,
         onClearCache: @escaping () async -> Void,
         onTapStudent: @escaping (ClassRosterStudent) -> Void
     ) {
@@ -50,6 +52,7 @@ struct ClassRosterView: View {
         self.onSignOut = onSignOut
         self.onCaptureImage = onCaptureImage
         self.onCaptureObservation = onCaptureObservation
+        self.onCaptureChildVoice = onCaptureChildVoice
         self.onClearCache = onClearCache
         self.onTapStudent = onTapStudent
         _model = State(
@@ -174,6 +177,14 @@ struct ClassRosterView: View {
                 if let observationLaunchContext, model.isLoading == false {
                     Button("Capture observation") {
                         onCaptureObservation(observationLaunchContext)
+                    }
+                }
+
+                if classContext != .allClasses,
+                   model.students.isEmpty == false,
+                   model.isLoading == false {
+                    Button("Capture Child Voice") {
+                        onCaptureChildVoice(model.students)
                     }
                 }
 

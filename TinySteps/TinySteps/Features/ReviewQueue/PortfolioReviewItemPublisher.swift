@@ -4,6 +4,7 @@ import MBAPI
 struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
     let portfolioService: PortfolioService
     let classesService: ClassesService
+    let observationDraftStore: ObservationCaptureDraftStore
 
     var isAvailable: Bool {
         true
@@ -42,11 +43,16 @@ struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
             session: session,
             selectedClass: selectedClass
         )
+        let audioDescriptionID = try await resolveAudioDescriptionID(
+            for: draft,
+            session: session
+        )
         let payload = try PortfolioPublishPayloadFactory.notePayload(
             for: draft,
             presetID: presetID,
             assignedUserIDs: assignedUserIDs,
-            outcome: outcome
+            outcome: outcome,
+            audioDescriptionID: audioDescriptionID
         )
 
         _ = try await portfolioService.createClassNote(
@@ -54,6 +60,20 @@ struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
             classID: draft.classID,
             payload: payload
         )
+
+        if let audioDescriptionID,
+           var childVoice = draft.childVoice,
+           childVoice.uploadedAudioDescriptionID != audioDescriptionID {
+            var publishedDraft = draft
+            childVoice.uploadedAudioDescriptionID = audioDescriptionID
+            publishedDraft.childVoice = childVoice
+            _ = try? await observationDraftStore.saveDraft(publishedDraft)
+        }
+
+        if let childVoice = draft.childVoice {
+            let recorder = ChildVoiceAudioRecorder()
+            try? recorder.deleteRecording(filename: childVoice.localFilename)
+        }
     }
 
     func publish(
@@ -119,6 +139,28 @@ struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
 
     private func resolveAudioDescriptionID(
         for draft: FaceCaptureDraft,
+        session: AuthSession
+    ) async throws -> String? {
+        guard let childVoice = draft.childVoice else {
+            return nil
+        }
+
+        if let uploadedID = childVoice.uploadedAudioDescriptionID {
+            return uploadedID
+        }
+
+        let recorder = ChildVoiceAudioRecorder()
+        let audioData = try recorder.recordingData(for: childVoice.localFilename)
+        return try await portfolioService.uploadAudioDescription(
+            for: session,
+            audioData: audioData,
+            filename: childVoice.localFilename,
+            mimeType: "audio/mp4"
+        )
+    }
+
+    private func resolveAudioDescriptionID(
+        for draft: ObservationCaptureDraft,
         session: AuthSession
     ) async throws -> String? {
         guard let childVoice = draft.childVoice else {

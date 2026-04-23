@@ -108,7 +108,8 @@ final class AppDependencies {
             observationDraftStore: observationDraftStore,
             observationDraftPublisher: MBPortfolioReviewItemPublisher(
                 portfolioService: features.portfolioService,
-                classesService: features.classesService
+                classesService: features.classesService,
+                observationDraftStore: observationDraftStore
             ),
             observationTaggingService: DisabledObservationTaggingService(),
             observationStandardTaggingService: observationStandardTaggingService,

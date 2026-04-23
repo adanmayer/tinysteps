@@ -55,6 +55,54 @@ struct PortfolioTimelineModelTests {
         #expect(entry.attributedStudents.first?.avatarURL?.absoluteString == "https://example.test/amara.png")
     }
 
+    @Test("Child voice prompt uses teacher copy when not in parent view")
+    func childVoicePromptUsesTeacherCopy() {
+        let item = MBAPI.Portfolio.TimelineItem(
+            id: "child-voice-1",
+            logableType: "note",
+            status: "published",
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            logable: .init(
+                id: "child-voice-1-log",
+                kind: "note",
+                body: nil,
+                audioDescription: .init(url: "https://example.test/voice.m4a")
+            ),
+            attributedStudents: [
+                .init(id: "child-1", displayName: "Amara Quinn")
+            ]
+        )
+
+        let entry = PortfolioEntryNormalizer.normalize(item, role: .teacherStream)
+
+        #expect(entry.kind == .childVoice)
+        #expect(entry.childVoicePrompt == "Amara Quinn wanted to share something.")
+    }
+
+    @Test("Child voice prompt uses parent copy when in parent journal")
+    func childVoicePromptUsesParentCopy() {
+        let item = MBAPI.Portfolio.TimelineItem(
+            id: "child-voice-2",
+            logableType: "note",
+            status: "published",
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            logable: .init(
+                id: "child-voice-2-log",
+                kind: "note",
+                body: nil,
+                audioDescription: .init(url: "https://example.test/voice.m4a")
+            ),
+            attributedStudents: [
+                .init(id: "child-1", displayName: "Amara Quinn")
+            ]
+        )
+
+        let entry = PortfolioEntryNormalizer.normalize(item, role: .parentJournal)
+
+        #expect(entry.kind == .childVoice)
+        #expect(entry.childVoicePrompt == "Amara Quinn wanted to tell you something.")
+    }
+
     @Test("Range filter shows today by default and All when selected")
     func rangeFilterShowsTodayAndAll() async throws {
         let today = Self.timelineItem(

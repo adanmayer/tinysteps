@@ -88,6 +88,45 @@ struct PortfolioPublishPayloadTests {
         #expect(dict["photo_ids"] != nil)
     }
 
+    @Test("Child-voice note payload uses child title")
+    func notePayloadUsesChildVoiceTitle() throws {
+        let draft = ObservationCaptureDraft(
+            classID: "class-1",
+            className: "Class",
+            transcript: "Amara voice",
+            matchedChildren: [
+                ObservationMatchedChild(
+                    studentKey: "amara-id",
+                    userID: "12",
+                    displayName: "Amara",
+                    matchText: "Amara"
+                )
+            ],
+            tags: .empty,
+            standardTagSuggestions: [],
+            pendingRetag: false,
+            childVoice: ChildVoiceDraft(
+                localFilename: "child-voice.m4a",
+                childStudentKey: "amara-id",
+                childUserID: "12",
+                childDisplayName: "Amara",
+                duration: 8.2
+            )
+        )
+
+        let payload = try PortfolioPublishPayloadFactory.notePayload(
+            for: draft,
+            presetID: "preset-child",
+            assignedUserIDs: [12],
+            outcome: .empty(isPYP: false),
+            audioDescriptionID: "audio-4"
+        )
+
+        let encoded = try encodedDict(payload)
+        #expect(encoded["title"] as? String == "In Amara's words")
+        #expect(encoded["body"] as? String == "Amara voice")
+    }
+
     private static func encodedDict<T: Encodable>(_ value: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(value)
         let object = try JSONSerialization.jsonObject(with: data, options: [])

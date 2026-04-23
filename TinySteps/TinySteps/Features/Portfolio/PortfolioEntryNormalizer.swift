@@ -3,8 +3,15 @@ import MBAPI
 
 enum PortfolioEntryNormalizer {
     nonisolated static func normalize(_ items: [MBAPI.Portfolio.TimelineItem]) -> [PortfolioEntry] {
+        normalize(items, role: .teacherStream)
+    }
+
+    nonisolated static func normalize(
+        _ items: [MBAPI.Portfolio.TimelineItem],
+        role: PortfolioTimelineRole
+    ) -> [PortfolioEntry] {
         items
-            .map(normalize(_:))
+            .map { normalize($0, role: role) }
             .sorted { lhs, rhs in
                 switch (lhs.createdAt, rhs.createdAt) {
                 case (.some(let lhsDate), .some(let rhsDate)):
@@ -20,6 +27,13 @@ enum PortfolioEntryNormalizer {
     }
 
     nonisolated static func normalize(_ item: MBAPI.Portfolio.TimelineItem) -> PortfolioEntry {
+        normalize(item, role: .teacherStream)
+    }
+
+    nonisolated static func normalize(
+        _ item: MBAPI.Portfolio.TimelineItem,
+        role: PortfolioTimelineRole
+    ) -> PortfolioEntry {
         let kind = normalizedKind(for: item)
         let title = normalizedTitle(for: item, kind: kind)
 
@@ -32,7 +46,7 @@ enum PortfolioEntryNormalizer {
             media: normalizedMedia(for: item, kind: kind, title: title),
             tags: normalizedTags(for: item),
             attributedStudents: normalizedStudents(for: item),
-            childVoicePrompt: normalizedChildVoicePrompt(for: item),
+            childVoicePrompt: normalizedChildVoicePrompt(for: item, role: role),
             isAssignedToAllStudents: item.isAssignedToAllStudents,
             sourceStatus: item.status
         )
@@ -213,7 +227,8 @@ enum PortfolioEntryNormalizer {
     }
 
     nonisolated private static func normalizedChildVoicePrompt(
-        for item: MBAPI.Portfolio.TimelineItem
+        for item: MBAPI.Portfolio.TimelineItem,
+        role: PortfolioTimelineRole
     ) -> String? {
         guard item.logable.hasAudioDescription else {
             return nil
@@ -221,8 +236,16 @@ enum PortfolioEntryNormalizer {
 
         let subject = item.explicitAttributedStudents.first?.displayName
         let baseSubject = subject?.isEmpty == false ? subject! : "A child"
+        let verb: String
 
-        return "\(baseSubject) wanted to share something."
+        switch role {
+        case .teacherStream:
+            verb = "wanted to share something."
+        case .parentJournal:
+            verb = "wanted to tell you something."
+        }
+
+        return "\(baseSubject) \(verb)"
     }
 
     nonisolated private static func normalizedAudioDurationText(

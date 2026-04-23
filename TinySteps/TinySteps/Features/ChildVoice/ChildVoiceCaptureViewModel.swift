@@ -31,11 +31,11 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
     init(
         session: ChildVoiceCaptureSession,
         maxDuration: TimeInterval = 30,
-        recorder: ChildVoiceAudioRecording = ChildVoiceAudioRecorder()
+        recorder: ChildVoiceAudioRecording? = nil
     ) {
         self.session = session
         self.maxDuration = maxDuration
-        self.recorder = recorder
+        self.recorder = recorder ?? ChildVoiceAudioRecorder()
         super.init()
     }
 

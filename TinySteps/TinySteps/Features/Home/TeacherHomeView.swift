@@ -28,6 +28,10 @@ struct TeacherHomeView: View {
     @State private var rosterReloadToken = UUID()
     @State private var captureSession: FaceCaptureSession?
     @State private var observationCaptureSession: ObservationCaptureSession?
+    @State private var isShowingChildVoicePicker = false
+    @State private var isShowingChildVoiceCapture = false
+    @State private var directChildVoiceCandidates: [ChildVoiceChild] = []
+    @State private var selectedDirectChildVoice: ChildVoiceChild?
     @State private var reviewDraftCount = 0
 
     var body: some View {
@@ -68,6 +72,26 @@ struct TeacherHomeView: View {
                 },
                 onCaptureObservation: { launchContext in
                     observationCaptureSession = ObservationCaptureSession(launchContext: launchContext)
+                },
+                onCaptureChildVoice: { students in
+                    directChildVoiceCandidates = students.compactMap { student in
+                        guard let rawUserID = student.userID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              rawUserID.isEmpty == false else {
+                            return nil
+                        }
+
+                        return ChildVoiceChild(
+                            studentKey: student.studentKey,
+                            userID: rawUserID,
+                            displayName: student.displayName
+                        )
+                    }
+
+                    guard directChildVoiceCandidates.isEmpty == false else {
+                        return
+                    }
+
+                    isShowingChildVoicePicker = true
                 },
                 onClearCache: {
                     await onClearCache()
@@ -116,6 +140,41 @@ struct TeacherHomeView: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $isShowingChildVoicePicker) {
+            ChildVoiceStudentPickerSheet(
+                children: directChildVoiceCandidates,
+                onSelect: { child in
+                    selectedDirectChildVoice = child
+                    isShowingChildVoiceCapture = true
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $isShowingChildVoiceCapture) {
+            if let classData = selectedClass,
+               let selectedChild = selectedDirectChildVoice {
+                ChildVoiceCaptureView(
+                    session: ChildVoiceCaptureSession(
+                        mode: .standaloneNote(
+                            classID: classData.id,
+                            className: directChildVoiceClassName,
+                            child: selectedChild
+                        )
+                    ),
+                    onSaved: { draft in
+                        Task {
+                            await saveDirectChildVoiceDraft(draft)
+                        }
+                    }
+                )
+            } else {
+                Text("Unable to start child voice capture.")
+            }
+        }
+        .onChange(of: isShowingChildVoiceCapture) { _, isPresented in
+            if isPresented == false {
+                selectedDirectChildVoice = nil
+            }
         }
         .sheet(item: $selectedStudent) { student in
             ClassRosterStudentSetupSheet(
@@ -186,6 +245,60 @@ struct TeacherHomeView: View {
         }
 
         return classID
+    }
+
+    private var directChildVoiceClassName: String {
+        let title = selectedContextTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.isEmpty == false {
+            return title
+        }
+
+        return selectedClass?.displayName ?? "Class"
+    }
+
+    private func saveDirectChildVoiceDraft(_ childVoiceDraft: ChildVoiceDraft) async {
+        guard let selectedClass else {
+            return
+        }
+
+        let trimmedUserID = childVoiceDraft.childUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedUserID.isEmpty == false else {
+            return
+        }
+
+        let childName = childVoiceDraft.childDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let draft = ObservationCaptureDraft(
+            classID: selectedClass.id,
+            className: directChildVoiceClassName,
+            transcript: "\(childName) voice",
+            matchedChildren: [
+                ObservationMatchedChild(
+                    studentKey: childVoiceDraft.childStudentKey,
+                    userID: trimmedUserID,
+                    displayName: childName,
+                    matchText: childName,
+                    confidence: 1
+                )
+            ],
+            tags: .empty,
+            standardTagSuggestions: [],
+            confidence: 0,
+            evidenceSpans: [],
+            pendingRetag: false,
+            dismissedChildMatchKeys: [],
+            childVoice: childVoiceDraft,
+            status: .savedForReview,
+            createdAt: childVoiceDraft.createdAt,
+            updatedAt: childVoiceDraft.createdAt
+        )
+
+        do {
+            _ = try await observationDraftStore.saveDraft(draft)
+            await refreshReviewDraftCount()
+        } catch {
+            // Keep local behavior unchanged for now.
+        }
     }
 
     private func refreshReviewDraftCount() async {

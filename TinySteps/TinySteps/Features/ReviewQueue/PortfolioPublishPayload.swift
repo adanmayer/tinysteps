@@ -151,14 +151,17 @@ enum PortfolioPublishPayloadFactory {
         outcome: PortfolioOutcomePayload,
         audioDescriptionID: String? = nil
     ) throws -> PortfolioNoteCreatePayload {
-        let body = draft.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard body.isEmpty == false else {
+        let trimmedBody = draft.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isChildVoice = draft.childVoice != nil
+        let title = isChildVoice ? "In \(draftChildDisplayName(for: draft))'s words" : "Observation"
+
+        guard trimmedBody.isEmpty == false else {
             throw ObservationDraftPublishError.validation("Observation text is empty. This draft stays on this device.")
         }
 
         return PortfolioNoteCreatePayload(
-            title: "Observation",
-            body: body,
+            title: title,
+            body: trimmedBody,
             startDate: localDateString(from: draft.createdAt),
             presetID: presetID,
             audioDescriptionID: audioDescriptionID,
@@ -168,6 +171,22 @@ enum PortfolioPublishPayloadFactory {
             shareToStudentPortfolios: false,
             outcome: outcome
         )
+    }
+
+    private static func draftChildDisplayName(for draft: ObservationCaptureDraft) -> String {
+        if let childDisplayName = draft.matchedChildren
+            .first(where: { $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false })?
+            .displayName.trimmingCharacters(in: .whitespacesAndNewlines), childDisplayName.isEmpty == false {
+            return childDisplayName
+        }
+
+        if let childDisplayName = draft.childVoice?.childDisplayName
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           childDisplayName.isEmpty == false {
+            return childDisplayName
+        }
+
+        return "Child"
     }
 
     static func photoPayload(

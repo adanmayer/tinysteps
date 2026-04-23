@@ -12,6 +12,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
     var evidenceSpans: [ObservationEvidenceSpan]
     var pendingRetag: Bool
     var dismissedChildMatchKeys: Set<String>
+    var childVoice: ChildVoiceDraft?
     var status: ObservationDraftStatus
     var createdAt: Date
     var updatedAt: Date
@@ -28,6 +29,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         evidenceSpans: [ObservationEvidenceSpan] = [],
         pendingRetag: Bool = true,
         dismissedChildMatchKeys: Set<String> = [],
+        childVoice: ChildVoiceDraft? = nil,
         status: ObservationDraftStatus = .localDraft,
         createdAt: Date = .now,
         updatedAt: Date = .now
@@ -43,6 +45,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         self.evidenceSpans = evidenceSpans
         self.pendingRetag = pendingRetag
         self.dismissedChildMatchKeys = dismissedChildMatchKeys
+        self.childVoice = childVoice
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -60,6 +63,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         case evidenceSpans
         case pendingRetag
         case dismissedChildMatchKeys
+        case childVoice
         case status
         case createdAt
         case updatedAt
@@ -79,6 +83,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         evidenceSpans = try container.decode([ObservationEvidenceSpan].self, forKey: .evidenceSpans)
         pendingRetag = try container.decode(Bool.self, forKey: .pendingRetag)
         dismissedChildMatchKeys = try container.decodeIfPresent(Set<String>.self, forKey: .dismissedChildMatchKeys) ?? []
+        childVoice = try container.decodeIfPresent(ChildVoiceDraft.self, forKey: .childVoice)
         status = try container.decode(ObservationDraftStatus.self, forKey: .status)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -98,6 +103,7 @@ struct ObservationCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         try container.encode(evidenceSpans, forKey: .evidenceSpans)
         try container.encode(pendingRetag, forKey: .pendingRetag)
         try container.encode(dismissedChildMatchKeys, forKey: .dismissedChildMatchKeys)
+        try container.encodeIfPresent(childVoice, forKey: .childVoice)
         try container.encode(status, forKey: .status)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)

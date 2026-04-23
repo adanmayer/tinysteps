@@ -701,36 +701,45 @@ private struct PortfolioStudentFilterButton: View {
 private struct PortfolioEntryAudioPlayerView: View {
     let url: URL
     let durationText: String?
+    let prompt: String?
 
     @State private var player: AVPlayer?
     @State private var isPlaying = false
+    @State private var playbackProgress = 0.0
+    @State private var durationInSeconds: Double?
+    @State private var progressObserver: Any?
     @State private var endObserver: NSObjectProtocol?
 
     var body: some View {
-        HStack(spacing: 14) {
-            Button(action: togglePlayback) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(Color(hex: "#6B8659"))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Child voice")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(hex: "#3A342E"))
-
-                if let durationText {
-                    Text(durationText)
-                        .font(.caption)
-                        .foregroundStyle(Color(hex: "#6E6456"))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Button(action: togglePlayback) {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 52, height: 52)
+                        .background(Color(hex: "#6B8659"))
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(prompt ?? "Child voice")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+                        .lineLimit(2)
+
+                    if let durationText {
+                        Text(durationText)
+                            .font(.caption)
+                            .foregroundStyle(Color(hex: "#6E6456"))
+                    }
+                }
+
+                Spacer()
             }
 
-            Spacer()
+            waveformProgressBar
         }
         .padding(14)
         .background(Color(hex: "#F5EDE0"))
@@ -741,6 +750,37 @@ private struct PortfolioEntryAudioPlayerView: View {
         }
     }
 
+    private var waveformProgressBar: some View {
+        GeometryReader { geometry in
+            let progressWidth = min(geometry.size.width, geometry.size.width * playbackProgress)
+            let bars = [4, 9, 6, 14, 10, 16, 8, 11, 5, 13, 7, 12]
+
+            ZStack(alignment: .leading) {
+                HStack(spacing: 4) {
+                    ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
+                        Capsule()
+                            .fill(Color(hex: "#CBBEA7"))
+                            .frame(width: 4, height: CGFloat(bar))
+                    }
+                }
+                .frame(height: 18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .padding(.horizontal, 1)
+
+                Capsule()
+                    .fill(Color(hex: "#6B8659").opacity(0.45))
+                    .frame(width: progressWidth, height: 18)
+                    .allowsHitTesting(false)
+            }
+            .frame(height: 18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color(hex: "#D9CAB3"), lineWidth: 1)
+            )
+        }
+        .frame(height: 18)
+    }
+
     private func setupPlayerIfNeeded() {
         guard player == nil else {
             return
@@ -748,12 +788,30 @@ private struct PortfolioEntryAudioPlayerView: View {
 
         let item = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: item)
+        refreshDuration(from: item)
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
         ) { _ in
             isPlaying = false
+            playbackProgress = 1.0
+        }
+        progressObserver = player?.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
+            queue: .main
+        ) { [weak player] time in
+            guard let currentItem = player?.currentItem else {
+                return
+            }
+
+            refreshDuration(from: currentItem)
+
+            guard let duration = durationInSeconds, duration > 0 else {
+                return
+            }
+
+            playbackProgress = max(0, min(1, time.seconds / duration))
         }
     }
 
@@ -769,6 +827,15 @@ private struct PortfolioEntryAudioPlayerView: View {
             return
         }
 
+        if playbackProgress >= 0.99 {
+            player.seek(to: .zero) { _ in
+                player.play()
+            }
+            playbackProgress = 0
+            isPlaying = true
+            return
+        }
+
         player.play()
         isPlaying = true
     }
@@ -776,10 +843,23 @@ private struct PortfolioEntryAudioPlayerView: View {
     private func stopPlayback() {
         player?.pause()
         isPlaying = false
-        player?.seek(to: .zero)
+        playbackProgress = 0
+        player?.seek(to: .zero) { _ in }
+    }
+
+    private func refreshDuration(from item: AVPlayerItem) {
+        let value = item.duration.seconds
+        guard value.isFinite, value > 0 else {
+            return
+        }
+        durationInSeconds = value
     }
 
     private func teardownPlayer() {
+        if let observer = progressObserver {
+            player?.removeTimeObserver(observer)
+            progressObserver = nil
+        }
         if let observer = endObserver {
             NotificationCenter.default.removeObserver(observer)
             endObserver = nil
@@ -854,7 +934,11 @@ private struct PortfolioEntryCard: View {
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         case .audio(let url, let duration):
-            PortfolioEntryAudioPlayerView(url: url, durationText: duration)
+            PortfolioEntryAudioPlayerView(
+                url: url,
+                durationText: duration,
+                prompt: entry.childVoicePrompt
+            )
         case .video:
             mediaFallback(systemImage: "play.rectangle.fill", text: "Video")
         case .file(let title, let subtitle, _):
@@ -868,7 +952,14 @@ private struct PortfolioEntryCard: View {
 
     @ViewBuilder
     private var bodyText: some View {
-        if let bodyText = entry.bodyText ?? entry.childVoicePrompt {
+        if entry.kind == .childVoice, let promptText = entry.childVoicePrompt {
+            Text(promptText)
+                .font(.body)
+                .lineSpacing(7)
+                .foregroundStyle(Color(hex: "#3A342E"))
+                .lineLimit(5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let bodyText = entry.bodyText {
             Text(bodyText)
                 .font(.body)
                 .lineSpacing(7)

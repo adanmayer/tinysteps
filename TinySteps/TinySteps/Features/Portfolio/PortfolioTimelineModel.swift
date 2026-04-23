@@ -197,7 +197,7 @@ final class PortfolioTimelineModel {
             let resolvedStudents = try await loadedStudents
             let resolvedItems = try await loadedItems
 
-            entries = PortfolioEntryNormalizer.normalize(resolvedItems)
+            entries = PortfolioEntryNormalizer.normalize(resolvedItems, role: role)
             students = resolvedStudents.isEmpty && role == .teacherStream && classID == nil
                 ? studentsFromEntries(entries)
                 : resolvedStudents
