@@ -8,7 +8,7 @@ struct ClassRosterView: View {
     let selectedContextTitle: String
     let selectedContextSubtitle: String
     let onShowClassSwitcher: () -> Void
-    let onShowClassSettings: () -> Void
+    let onSignOut: () -> Void
     let onCaptureImage: ([ClassRosterStudent]) -> Void
     let onCaptureObservation: (ObservationCaptureLaunchContext) -> Void
     let onClearCache: () async -> Void
@@ -31,7 +31,7 @@ struct ClassRosterView: View {
         classesService: ClassesService,
         faceEnrollmentStore: FaceEnrollmentStore,
         onShowClassSwitcher: @escaping () -> Void,
-        onShowClassSettings: @escaping () -> Void,
+        onSignOut: @escaping () -> Void,
         onCaptureImage: @escaping ([ClassRosterStudent]) -> Void,
         onCaptureObservation: @escaping (ObservationCaptureLaunchContext) -> Void,
         onClearCache: @escaping () async -> Void,
@@ -46,7 +46,7 @@ struct ClassRosterView: View {
         self.classesService = classesService
         self.faceEnrollmentStore = faceEnrollmentStore
         self.onShowClassSwitcher = onShowClassSwitcher
-        self.onShowClassSettings = onShowClassSettings
+        self.onSignOut = onSignOut
         self.onCaptureImage = onCaptureImage
         self.onCaptureObservation = onCaptureObservation
         self.onClearCache = onClearCache
@@ -195,7 +195,7 @@ struct ClassRosterView: View {
                         }
                     }
 
-                    Button("Class settings", action: onShowClassSettings)
+                    Button("Log Out", role: .destructive, action: onSignOut)
                 }
             }
             .padding(.horizontal, 20)

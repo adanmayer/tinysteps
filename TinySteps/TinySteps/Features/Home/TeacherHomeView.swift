@@ -55,9 +55,7 @@ struct TeacherHomeView: View {
                 classesService: classesService,
                 faceEnrollmentStore: faceEnrollmentStore,
                 onShowClassSwitcher: onShowClassSwitcher,
-                onShowClassSettings: {
-                    selectedStudent = nil
-                },
+                onSignOut: onSignOut,
                 onCaptureImage: { students in
                     guard let selectedClass else {
                         return
