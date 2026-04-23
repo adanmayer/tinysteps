@@ -155,7 +155,7 @@ struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
             for: session,
             audioData: audioData,
             filename: childVoice.localFilename,
-            mimeType: "audio/mp4"
+            mimeType: "audio/x-m4a"
         )
     }
 
@@ -177,7 +177,7 @@ struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
             for: session,
             audioData: audioData,
             filename: childVoice.localFilename,
-            mimeType: "audio/mp4"
+            mimeType: "audio/x-m4a"
         )
     }
 

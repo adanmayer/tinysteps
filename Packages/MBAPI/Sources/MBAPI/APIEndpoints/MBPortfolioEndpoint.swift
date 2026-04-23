@@ -129,7 +129,7 @@ public struct MBPortfolioEndpointClient: MBPortfolioEndpoint, Sendable {
     ) async throws -> Portfolio.DirectUploadResponse {
         try await requester.send(
             Portfolio.DirectUploadResponse.self,
-            to: "\(context.role.urlPathComponent)/direct_uploads",
+            to: "direct_uploads",
             in: context,
             method: "POST",
             query: [:],

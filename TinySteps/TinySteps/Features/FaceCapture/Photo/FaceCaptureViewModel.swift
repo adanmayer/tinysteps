@@ -36,6 +36,8 @@ final class FaceCaptureViewModel: ObservableObject {
     private let draftStore: FaceCaptureDraftStore
     private let camera = FaceCaptureCameraController()
     private let identificationService: FaceIdentificationService?
+    private let editingDraftID: FaceCaptureDraft.ID?
+    private let editingCapturedAt: Date?
     private var cameraCancellables: Set<AnyCancellable> = []
 
     init(
@@ -44,7 +46,8 @@ final class FaceCaptureViewModel: ObservableObject {
         className: String,
         candidateStudents: [FaceCaptureStudentSnapshot],
         faceEnrollmentStore: FaceEnrollmentStore,
-        draftStore: FaceCaptureDraftStore
+        draftStore: FaceCaptureDraftStore,
+        initialDraft: FaceCaptureDraft? = nil
     ) {
         self.session = session
         self.classID = classID
@@ -53,11 +56,16 @@ final class FaceCaptureViewModel: ObservableObject {
         self.faceEnrollmentStore = faceEnrollmentStore
         self.draftStore = draftStore
         self.identificationService = try? FaceIdentificationService()
+        self.editingDraftID = initialDraft?.id
+        self.editingCapturedAt = initialDraft?.capturedAt
         camera.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
             .store(in: &cameraCancellables)
+        if let initialDraft {
+            apply(initialDraft)
+        }
     }
 
     var cameraPreviewSession: AVCaptureSession {
@@ -120,11 +128,15 @@ final class FaceCaptureViewModel: ObservableObject {
             guard let userID = student.userID else {
                 continue
             }
+            let displayName = student.displayName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let childDisplayName = displayName.isEmpty ? "Child" : displayName
 
             linkedChildren[studentKey] = ChildVoiceChild(
                 studentKey: student.studentKey,
                 userID: userID,
-                displayName: student.displayName
+                displayName: childDisplayName,
+                avatarURL: student.avatarURL
             )
         }
 
@@ -256,9 +268,11 @@ final class FaceCaptureViewModel: ObservableObject {
         state = .saving
 
         let draft = FaceCaptureDraft(
+            id: editingDraftID ?? UUID(),
             classID: classID,
             className: className,
             imageData: imageData,
+            capturedAt: editingCapturedAt ?? .now,
             faces: detectedFaces.map { face in
                 let studentKey: String?
                 let userID: String?
@@ -330,5 +344,36 @@ final class FaceCaptureViewModel: ObservableObject {
         }
         let displayName = candidateStudents.first(where: { $0.studentKey == studentKey })?.displayName ?? studentKey
         return .matched(studentKey: studentKey, displayName: displayName, distanceSquared: 0)
+    }
+
+    private func apply(_ draft: FaceCaptureDraft) {
+        guard let image = UIImage(data: draft.imageData) else {
+            errorMessage = "Photo draft could not be opened."
+            state = .failed("Photo draft could not be opened.")
+            return
+        }
+
+        capturedImage = image
+        detectedFaces = draft.faces.map { face in
+            let label: FaceCaptureLabel
+            if let studentKey = face.studentKey {
+                label = selectedStudentLabel(studentKey: studentKey)
+            } else {
+                label = .unknown(distanceSquared: nil)
+            }
+
+            return FaceCaptureFace(
+                id: face.faceID,
+                bounds: CGRect(
+                    x: face.bounds.x,
+                    y: face.bounds.y,
+                    width: face.bounds.width,
+                    height: face.bounds.height
+                ),
+                label: label
+            )
+        }
+        childVoiceDraft = draft.childVoice
+        state = .reviewing
     }
 }

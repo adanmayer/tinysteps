@@ -24,7 +24,8 @@ struct FaceCaptureView: View {
                 className: captureSession.className,
                 candidateStudents: captureSession.rosterSnapshot,
                 faceEnrollmentStore: faceEnrollmentStore,
-                draftStore: draftStore
+                draftStore: draftStore,
+                initialDraft: captureSession.initialDraft
             )
         )
         self.onSaved = onSaved
@@ -522,69 +523,8 @@ struct FaceCaptureView: View {
                     viewModel.assignFace(face)
                     isShowingAssignment = true
                 }
-
-                VStack {
-                    HStack {
-                        reviewSummaryPill
-                        Spacer()
-                    }
-                    .padding(.top, 34)
-                    .padding(.horizontal, 32)
-
-                    Spacer()
-
-                    HStack {
-                        Text("long-press to show face rect")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
-                            .padding(.leading, 2)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 40)
-                }
             }
         }
-    }
-
-    private var reviewSummaryPill: some View {
-        let matchedNames = viewModel.detectedFaces.compactMap { face -> String? in
-            if case .matched(_, let displayName, _) = face.label {
-                return firstName(from: displayName)
-            }
-            return nil
-        }
-        let title = matchedNames.first ?? "Tap to name"
-        let extraCount = max(0, viewModel.detectedFaces.count - 1)
-
-        return HStack(spacing: 10) {
-            Circle()
-                .fill(Color(hex: "#E7B95B"))
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Text(String(title.prefix(1)).uppercased())
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                )
-
-            Text(extraCount > 0 ? "\(title) · +\(extraCount)" : title)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color(hex: "#3A342E").opacity(0.34))
-        .clipShape(Capsule())
-    }
-
-    private func firstName(from fullName: String) -> String {
-        fullName
-            .split(separator: " ")
-            .first
-            .map(String.init) ?? fullName
     }
 
     private func aspectFill(from imageSize: CGSize, into containerSize: CGSize) -> CGSize {

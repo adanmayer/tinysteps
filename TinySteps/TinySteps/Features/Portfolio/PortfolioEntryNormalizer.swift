@@ -8,10 +8,17 @@ enum PortfolioEntryNormalizer {
 
     nonisolated static func normalize(
         _ items: [MBAPI.Portfolio.TimelineItem],
-        role: PortfolioTimelineRole
+        role: PortfolioTimelineRole,
+        studentDisplayNamesByID: [PortfolioStudent.ID: String] = [:]
     ) -> [PortfolioEntry] {
         items
-            .map { normalize($0, role: role) }
+            .map {
+                normalize(
+                    $0,
+                    role: role,
+                    studentDisplayNamesByID: studentDisplayNamesByID
+                )
+            }
             .sorted { lhs, rhs in
                 switch (lhs.createdAt, rhs.createdAt) {
                 case (.some(let lhsDate), .some(let rhsDate)):
@@ -32,7 +39,8 @@ enum PortfolioEntryNormalizer {
 
     nonisolated static func normalize(
         _ item: MBAPI.Portfolio.TimelineItem,
-        role: PortfolioTimelineRole
+        role: PortfolioTimelineRole,
+        studentDisplayNamesByID: [PortfolioStudent.ID: String] = [:]
     ) -> PortfolioEntry {
         let kind = normalizedKind(for: item)
         let title = normalizedTitle(for: item, kind: kind)
@@ -45,8 +53,15 @@ enum PortfolioEntryNormalizer {
             createdAt: item.createdDate,
             media: normalizedMedia(for: item, kind: kind, title: title),
             tags: normalizedTags(for: item),
-            attributedStudents: normalizedStudents(for: item),
-            childVoicePrompt: normalizedChildVoicePrompt(for: item, role: role),
+            attributedStudents: normalizedStudents(
+                for: item,
+                studentDisplayNamesByID: studentDisplayNamesByID
+            ),
+            childVoicePrompt: normalizedChildVoicePrompt(
+                for: item,
+                role: role,
+                studentDisplayNamesByID: studentDisplayNamesByID
+            ),
             isAssignedToAllStudents: item.isAssignedToAllStudents,
             sourceStatus: item.status
         )
@@ -216,11 +231,19 @@ enum PortfolioEntryNormalizer {
             }
     }
 
-    nonisolated private static func normalizedStudents(for item: MBAPI.Portfolio.TimelineItem) -> [PortfolioStudent] {
+    nonisolated private static func normalizedStudents(
+        for item: MBAPI.Portfolio.TimelineItem,
+        studentDisplayNamesByID: [PortfolioStudent.ID: String]
+    ) -> [PortfolioStudent] {
         item.explicitAttributedStudents.map { student in
-            PortfolioStudent(
+            let displayName = normalizedStudentDisplayName(
+                for: student,
+                studentDisplayNamesByID: studentDisplayNamesByID
+            )
+
+            return PortfolioStudent(
                 id: student.id,
-                displayName: student.displayName.isEmpty ? "Child" : student.displayName,
+                displayName: displayName ?? "Child",
                 avatarURL: student.avatarURL
             )
         }
@@ -228,24 +251,39 @@ enum PortfolioEntryNormalizer {
 
     nonisolated private static func normalizedChildVoicePrompt(
         for item: MBAPI.Portfolio.TimelineItem,
-        role: PortfolioTimelineRole
+        role: PortfolioTimelineRole,
+        studentDisplayNamesByID: [PortfolioStudent.ID: String]
     ) -> String? {
         guard item.logable.hasAudioDescription else {
             return nil
         }
 
-        let subject = item.explicitAttributedStudents.first?.displayName
-        let baseSubject = subject?.isEmpty == false ? subject! : "A child"
+        let baseSubject = item.explicitAttributedStudents.first
+            .flatMap {
+                normalizedStudentDisplayName(
+                    for: $0,
+                    studentDisplayNamesByID: studentDisplayNamesByID
+                )
+            } ?? "A child"
         let verb: String
 
         switch role {
         case .teacherStream:
-            verb = "wanted to share something."
+            verb = "'s voice - recorded alongside the observation"
         case .parentJournal:
-            verb = "wanted to tell you something."
+            verb = "'s voice - recorded for you"
         }
 
-        return "\(baseSubject) \(verb)"
+        return "\(baseSubject)\(verb)"
+    }
+
+    nonisolated private static func normalizedStudentDisplayName(
+        for student: MBAPI.Portfolio.TimelineItem.AttributedStudent,
+        studentDisplayNamesByID: [PortfolioStudent.ID: String]
+    ) -> String? {
+        let displayName = studentDisplayNamesByID[student.id] ?? student.displayName
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     nonisolated private static func normalizedAudioDurationText(
@@ -256,12 +294,7 @@ enum PortfolioEntryNormalizer {
             return nil
         }
 
-        if duration >= 60 {
-            let minutes = Int(duration) / 60
-            let seconds = Int(duration) % 60
-            return String(format: "%d:%02d", minutes, seconds)
-        }
-
-        return String(format: "%.0fs", duration)
+        let seconds = Int(duration.rounded())
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

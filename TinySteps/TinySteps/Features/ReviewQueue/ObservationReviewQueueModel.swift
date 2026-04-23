@@ -171,6 +171,14 @@ final class ObservationReviewQueueModel {
         actionItemIDs.contains(itemID)
     }
 
+    func clearStatusMessage(ifCurrentMessage message: String) {
+        guard statusMessage == message else {
+            return
+        }
+
+        statusMessage = nil
+    }
+
     func saveForLater(_ draftID: ObservationCaptureDraft.ID) async {
         guard var draft = reviewItems.first(where: { $0.id == draftID })?.noteDraft else {
             return

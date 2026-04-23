@@ -118,6 +118,13 @@ struct ClassRosterView: View {
                 }
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if shouldShowCaptureMenu {
+                captureMenuButton
+                    .padding(.trailing, 22)
+                    .padding(.bottom, 28)
+            }
+        }
         .task(id: selectedClass?.id) {
             await model.loadIfNeeded(for: selectedClass, classContext: classContext)
         }
@@ -166,28 +173,6 @@ struct ClassRosterView: View {
                 }
             )
             .confirmationDialog("Class options", isPresented: $isShowingClassActions, titleVisibility: .visible) {
-                if classContext != .allClasses,
-                   model.students.isEmpty == false,
-                   model.isLoading == false {
-                    Button("Capture image") {
-                        onCaptureImage(model.students)
-                    }
-                }
-
-                if let observationLaunchContext, model.isLoading == false {
-                    Button("Capture observation") {
-                        onCaptureObservation(observationLaunchContext)
-                    }
-                }
-
-                if classContext != .allClasses,
-                   model.students.isEmpty == false,
-                   model.isLoading == false {
-                    Button("Capture Child Voice") {
-                        onCaptureChildVoice(model.students)
-                    }
-                }
-
                 Button("Clear cache") {
                     Task {
                         cacheStatusMessage = "Clearing local cache…"
@@ -225,6 +210,49 @@ struct ClassRosterView: View {
             }
         }
         .padding(.bottom, 4)
+    }
+
+    private var captureMenuButton: some View {
+        Menu {
+            Button {
+                if let observationLaunchContext {
+                    onCaptureObservation(observationLaunchContext)
+                }
+            } label: {
+                Label("Observation", systemImage: "mic.fill")
+            }
+            .disabled(observationLaunchContext == nil || model.isLoading)
+
+            Button {
+                onCaptureImage(model.students)
+            } label: {
+                Label("Image", systemImage: "camera.fill")
+            }
+            .disabled(canLaunchRosterCapture == false)
+
+            Button {
+                onCaptureChildVoice(model.students)
+            } label: {
+                Label("Child voice", systemImage: "waveform.circle.fill")
+            }
+            .disabled(canLaunchRosterCapture == false)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color(hex: "#6F9258"))
+                    .frame(width: 64, height: 64)
+                    .shadow(color: Color(hex: "#6F9258").opacity(0.34), radius: 18, x: 0, y: 10)
+
+                Image(systemName: "plus")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .overlay(
+                Circle()
+                    .stroke(Color(hex: "#FFFDF8").opacity(0.92), lineWidth: 3)
+            )
+        }
+        .accessibilityLabel("Capture")
     }
 
     private func classSelectorLabel(title: String, showsChevron: Bool) -> some View {
@@ -336,6 +364,19 @@ struct ClassRosterView: View {
             return selectedContextTitle
         }
         return "Class"
+    }
+
+    private var shouldShowCaptureMenu: Bool {
+        classContext != .allClasses
+            && model.isLoading == false
+            && model.errorMessage == nil
+            && model.students.isEmpty == false
+    }
+
+    private var canLaunchRosterCapture: Bool {
+        classContext != .allClasses
+            && model.isLoading == false
+            && model.students.isEmpty == false
     }
 
     private var observationLaunchContext: ObservationCaptureLaunchContext? {

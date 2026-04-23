@@ -17,6 +17,7 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
     @Published private(set) var state: State = .askingAssent
     @Published private(set) var recordingTimeText: String = "00:00"
     @Published private(set) var isPlaying = false
+    @Published private(set) var didConfirmChildAssent = false
 
     let session: ChildVoiceCaptureSession
     private let recorder: ChildVoiceAudioRecording
@@ -40,7 +41,26 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
     }
 
     var childName: String {
-        session.child.displayName
+        let displayName = session.child.displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if displayName.isEmpty {
+            return "Child"
+        }
+        return displayName
+    }
+
+    var childAvatarURL: URL? {
+        session.child.avatarURL
+    }
+
+    var childInitials: String {
+        let initials = childName
+            .split(separator: " ")
+            .compactMap { $0.first }
+            .map(String.init)
+            .joined()
+            .prefix(2)
+        return initials.isEmpty ? String(childName.prefix(2)).uppercased() : initials.uppercased()
     }
 
     func begin() async {
@@ -54,7 +74,21 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
             return
         }
 
+        didConfirmChildAssent = true
         state = .ready
+    }
+
+    func handlePrimaryRecordingControl() async {
+        switch state {
+        case .askingAssent:
+            return
+        case .ready:
+            startRecording()
+        case .recording:
+            stopRecording()
+        case .recorded, .savingLocalDraft, .saved, .failed:
+            return
+        }
     }
 
     func startRecording() {
@@ -109,7 +143,17 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
     }
 
     func resetToReady() {
-        discardRecording()
+        if didConfirmChildAssent {
+            discardRecording()
+        } else {
+            stopPlayback()
+            timerTask?.cancel()
+            recordingFilename = nil
+            recordedDuration = 0
+            savedDraft = nil
+            updateRecordingTimeText(0)
+            state = .askingAssent
+        }
     }
 
     func rerecord() {
@@ -131,7 +175,7 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
             localFilename: recordingFilename,
             childStudentKey: session.child.studentKey,
             childUserID: session.child.userID,
-            childDisplayName: session.child.displayName,
+            childDisplayName: childName,
             duration: recordedDuration,
             createdAt: Date()
         )
@@ -150,10 +194,12 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
         if isPlaying {
             audioPlayer?.pause()
             isPlaying = false
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             return
         }
 
         do {
+            try prepareAudioSessionForPlayback()
             if audioPlayer == nil || audioPlayer?.url != url {
                 let player = try AVAudioPlayer(contentsOf: url)
                 player.delegate = self
@@ -174,6 +220,7 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
             try? recorder.cancelRecording()
         }
         discardRecording()
+        didConfirmChildAssent = false
         state = .askingAssent
     }
 
@@ -190,6 +237,17 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
         audioPlayer?.pause()
         audioPlayer?.currentTime = 0
         audioPlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func prepareAudioSessionForPlayback() throws {
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(
+            .playback,
+            mode: .spokenAudio,
+            options: [.duckOthers]
+        )
+        try audioSession.setActive(true)
     }
 
     private func updateRecordingTimeText(_ duration: TimeInterval) {
@@ -231,5 +289,6 @@ final class ChildVoiceCaptureViewModel: NSObject, ObservableObject, AVAudioPlaye
             return
         }
         isPlaying = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

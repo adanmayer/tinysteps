@@ -28,11 +28,10 @@ struct TeacherHomeView: View {
     @State private var rosterReloadToken = UUID()
     @State private var captureSession: FaceCaptureSession?
     @State private var observationCaptureSession: ObservationCaptureSession?
-    @State private var isShowingChildVoicePicker = false
-    @State private var isShowingChildVoiceCapture = false
-    @State private var directChildVoiceCandidates: [ChildVoiceChild] = []
-    @State private var selectedDirectChildVoice: ChildVoiceChild?
+    @State private var childVoicePickerPresentation: ChildVoicePickerPresentation?
+    @State private var directChildVoiceCapturePresentation: DirectChildVoiceCapturePresentation?
     @State private var reviewDraftCount = 0
+    @State private var streamCaptureReviewBaselines: [UUID: Int] = [:]
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -61,37 +60,22 @@ struct TeacherHomeView: View {
                 onShowClassSwitcher: onShowClassSwitcher,
                 onSignOut: onSignOut,
                 onCaptureImage: { students in
-                    guard let selectedClass else {
-                        return
-                    }
-                    captureSession = FaceCaptureSession(
-                        classID: selectedClass.id,
-                        className: selectedContextTitle,
-                        rosterSnapshot: students.map(FaceCaptureStudentSnapshot.init)
+                    presentImageCapture(
+                        students: students,
+                        shouldSwitchToReviewAfterCapture: false
                     )
                 },
                 onCaptureObservation: { launchContext in
-                    observationCaptureSession = ObservationCaptureSession(launchContext: launchContext)
+                    presentObservationCapture(
+                        launchContext,
+                        shouldSwitchToReviewAfterCapture: false
+                    )
                 },
                 onCaptureChildVoice: { students in
-                    directChildVoiceCandidates = students.compactMap { student in
-                        guard let rawUserID = student.userID?.trimmingCharacters(in: .whitespacesAndNewlines),
-                              rawUserID.isEmpty == false else {
-                            return nil
-                        }
-
-                        return ChildVoiceChild(
-                            studentKey: student.studentKey,
-                            userID: rawUserID,
-                            displayName: student.displayName
-                        )
-                    }
-
-                    guard directChildVoiceCandidates.isEmpty == false else {
-                        return
-                    }
-
-                    isShowingChildVoicePicker = true
+                    presentChildVoicePicker(
+                        students: students,
+                        shouldSwitchToReviewAfterCapture: false
+                    )
                 },
                 onClearCache: {
                     await onClearCache()
@@ -118,7 +102,10 @@ struct TeacherHomeView: View {
                 onSaved: {
                     self.captureSession = nil
                     Task {
-                        await refreshReviewDraftCount()
+                        await finishCaptureFlow(
+                            captureID: selectedCaptureSession.id,
+                            saved: true
+                        )
                     }
                 }
             )
@@ -136,45 +123,49 @@ struct TeacherHomeView: View {
                 onDismiss: {
                     self.observationCaptureSession = nil
                     Task {
-                        await refreshReviewDraftCount()
-                    }
-                }
-            )
-        }
-        .sheet(isPresented: $isShowingChildVoicePicker) {
-            ChildVoiceStudentPickerSheet(
-                children: directChildVoiceCandidates,
-                onSelect: { child in
-                    selectedDirectChildVoice = child
-                    isShowingChildVoiceCapture = true
-                }
-            )
-        }
-        .fullScreenCover(isPresented: $isShowingChildVoiceCapture) {
-            if let classData = selectedClass,
-               let selectedChild = selectedDirectChildVoice {
-                ChildVoiceCaptureView(
-                    session: ChildVoiceCaptureSession(
-                        mode: .standaloneNote(
-                            classID: classData.id,
-                            className: directChildVoiceClassName,
-                            child: selectedChild
+                        await finishCaptureFlow(
+                            captureID: selectedObservationSession.id,
+                            saved: nil
                         )
-                    ),
-                    onSaved: { draft in
-                        Task {
-                            await saveDirectChildVoiceDraft(draft)
-                        }
                     }
-                )
-            } else {
-                Text("Unable to start child voice capture.")
-            }
+                }
+            )
         }
-        .onChange(of: isShowingChildVoiceCapture) { _, isPresented in
-            if isPresented == false {
-                selectedDirectChildVoice = nil
-            }
+        .sheet(item: $childVoicePickerPresentation) { presentation in
+            ChildVoiceStudentPickerSheet(
+                children: presentation.children,
+                onSelect: { child in
+                    presentDirectChildVoiceCapture(
+                        for: child,
+                        shouldSwitchToReviewAfterCapture: presentation.shouldSwitchToReviewAfterCapture
+                    )
+                }
+            )
+        }
+        .fullScreenCover(item: $directChildVoiceCapturePresentation) { presentation in
+            ChildVoiceCaptureView(
+                session: ChildVoiceCaptureSession(
+                    mode: .standaloneNote(
+                        classID: presentation.classID,
+                        className: presentation.className,
+                        child: presentation.child
+                    )
+                ),
+                onSaved: { draft in
+                    Task {
+                        let didSave = await saveDirectChildVoiceDraft(
+                            draft,
+                            classID: presentation.classID,
+                            className: presentation.className
+                        )
+                        directChildVoiceCapturePresentation = nil
+                        await finishCaptureFlow(
+                            captureID: presentation.id,
+                            saved: didSave
+                        )
+                    }
+                }
+            )
         }
         .sheet(item: $selectedStudent) { student in
             ClassRosterStudentSetupSheet(
@@ -202,7 +193,10 @@ struct TeacherHomeView: View {
             canShowScopeSwitcher: canShowClassSwitcher,
             portfolioService: portfolioService,
             classesService: classesService,
-            onShowScopeSwitcher: onShowClassSwitcher
+            onShowScopeSwitcher: onShowClassSwitcher,
+            onCaptureObservation: launchStreamObservationCapture,
+            onCaptureImage: launchStreamImageCapture,
+            onCaptureChildVoice: launchStreamChildVoiceCapture
         )
         .id(streamIdentity)
     }
@@ -216,6 +210,7 @@ struct TeacherHomeView: View {
             canShowClassSwitcher: canShowClassSwitcher,
             draftStore: observationDraftStore,
             photoDraftStore: faceCaptureDraftStore,
+            faceEnrollmentStore: faceEnrollmentStore,
             publisher: observationDraftPublisher,
             observationSpeechTranscriber: observationSpeechTranscriber,
             observationTaggingService: observationTaggingService,
@@ -256,21 +251,196 @@ struct TeacherHomeView: View {
         return selectedClass?.displayName ?? "Class"
     }
 
-    private func saveDirectChildVoiceDraft(_ childVoiceDraft: ChildVoiceDraft) async {
+    private func presentImageCapture(
+        students: [ClassRosterStudent],
+        shouldSwitchToReviewAfterCapture: Bool
+    ) {
         guard let selectedClass else {
             return
         }
 
+        let selectedCaptureSession = FaceCaptureSession(
+            classID: selectedClass.id,
+            className: directChildVoiceClassName,
+            rosterSnapshot: students.map(FaceCaptureStudentSnapshot.init)
+        )
+        if shouldSwitchToReviewAfterCapture {
+            streamCaptureReviewBaselines[selectedCaptureSession.id] = reviewDraftCount
+        }
+        captureSession = selectedCaptureSession
+    }
+
+    private func presentObservationCapture(
+        _ launchContext: ObservationCaptureLaunchContext,
+        shouldSwitchToReviewAfterCapture: Bool
+    ) {
+        let selectedObservationSession = ObservationCaptureSession(launchContext: launchContext)
+        if shouldSwitchToReviewAfterCapture {
+            streamCaptureReviewBaselines[selectedObservationSession.id] = reviewDraftCount
+        }
+        observationCaptureSession = selectedObservationSession
+    }
+
+    private func presentChildVoicePicker(
+        students: [ClassRosterStudent],
+        shouldSwitchToReviewAfterCapture: Bool
+    ) {
+        let candidates = directChildVoiceCandidates(from: students)
+        guard candidates.isEmpty == false else {
+            return
+        }
+
+        childVoicePickerPresentation = ChildVoicePickerPresentation(
+            children: candidates,
+            shouldSwitchToReviewAfterCapture: shouldSwitchToReviewAfterCapture
+        )
+    }
+
+    private func presentDirectChildVoiceCapture(
+        for child: ChildVoiceChild,
+        shouldSwitchToReviewAfterCapture: Bool
+    ) {
+        guard let selectedClass else {
+            childVoicePickerPresentation = nil
+            return
+        }
+
+        let classID = selectedClass.id
+        let className = directChildVoiceClassName
+        childVoicePickerPresentation = nil
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            let presentation = DirectChildVoiceCapturePresentation(
+                classID: classID,
+                className: className,
+                child: child
+            )
+            if shouldSwitchToReviewAfterCapture {
+                streamCaptureReviewBaselines[presentation.id] = reviewDraftCount
+            }
+            directChildVoiceCapturePresentation = presentation
+        }
+    }
+
+    private func launchStreamImageCapture() {
+        Task {
+            guard let students = await loadSelectedClassRosterStudents(),
+                  students.isEmpty == false else {
+                return
+            }
+
+            presentImageCapture(
+                students: students,
+                shouldSwitchToReviewAfterCapture: true
+            )
+        }
+    }
+
+    private func launchStreamObservationCapture() {
+        Task {
+            guard let students = await loadSelectedClassRosterStudents(),
+                  let launchContext = makeObservationLaunchContext(students: students) else {
+                return
+            }
+
+            presentObservationCapture(
+                launchContext,
+                shouldSwitchToReviewAfterCapture: true
+            )
+        }
+    }
+
+    private func launchStreamChildVoiceCapture() {
+        Task {
+            guard let students = await loadSelectedClassRosterStudents(),
+                  students.isEmpty == false else {
+                return
+            }
+
+            presentChildVoicePicker(
+                students: students,
+                shouldSwitchToReviewAfterCapture: true
+            )
+        }
+    }
+
+    private func makeObservationLaunchContext(students: [ClassRosterStudent]) -> ObservationCaptureLaunchContext? {
+        guard let selectedClass, let classID = streamClassID else {
+            return nil
+        }
+
+        return ObservationCaptureLaunchContext(
+            classID: classID,
+            className: directChildVoiceClassName,
+            selectedClass: selectedClass,
+            rosterSnapshot: students.map(ObservationRosterStudent.init)
+        )
+    }
+
+    private func loadSelectedClassRosterStudents() async -> [ClassRosterStudent]? {
+        guard let classID = streamClassID else {
+            return nil
+        }
+
+        do {
+            let members = try await classesService.loadClassStudents(for: session, classID: classID)
+            let memberKeys = members.map(\.rosterStudentKey)
+            let statuses = (try? await faceEnrollmentStore.statuses(for: memberKeys)) ?? [:]
+
+            return members
+                .sorted { $0.rosterStudentKey < $1.rosterStudentKey }
+                .map { member in
+                    ClassRosterStudent.from(
+                        member: member,
+                        status: statuses[member.rosterStudentKey] ?? .needsSetup,
+                        presence: .present
+                    )
+                }
+        } catch {
+            return nil
+        }
+    }
+
+    private func directChildVoiceCandidates(from students: [ClassRosterStudent]) -> [ChildVoiceChild] {
+        students.compactMap { student in
+            guard let rawUserID = student.userID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  rawUserID.isEmpty == false else {
+                return nil
+            }
+
+            let studentKey = student.studentKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard studentKey.isEmpty == false else {
+                return nil
+            }
+
+            let displayName = student.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let childDisplayName = displayName.isEmpty ? "Child" : displayName
+
+            return ChildVoiceChild(
+                studentKey: studentKey,
+                userID: rawUserID,
+                displayName: childDisplayName,
+                avatarURL: student.avatarURL
+            )
+        }
+    }
+
+    private func saveDirectChildVoiceDraft(
+        _ childVoiceDraft: ChildVoiceDraft,
+        classID: String,
+        className: String
+    ) async -> Bool {
         let trimmedUserID = childVoiceDraft.childUserID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedUserID.isEmpty == false else {
-            return
+            return false
         }
 
         let childName = childVoiceDraft.childDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let draft = ObservationCaptureDraft(
-            classID: selectedClass.id,
-            className: directChildVoiceClassName,
+            classID: classID,
+            className: className,
             transcript: "\(childName) voice",
             matchedChildren: [
                 ObservationMatchedChild(
@@ -295,9 +465,23 @@ struct TeacherHomeView: View {
 
         do {
             _ = try await observationDraftStore.saveDraft(draft)
-            await refreshReviewDraftCount()
+            return true
         } catch {
             // Keep local behavior unchanged for now.
+            return false
+        }
+    }
+
+    private func finishCaptureFlow(captureID: UUID, saved: Bool?) async {
+        await refreshReviewDraftCount()
+
+        guard let baselineCount = streamCaptureReviewBaselines.removeValue(forKey: captureID) else {
+            return
+        }
+
+        let shouldSwitchToReview = saved ?? (reviewDraftCount > baselineCount)
+        if shouldSwitchToReview {
+            selectedTab = 1
         }
     }
 
@@ -316,6 +500,19 @@ struct TeacherHomeView: View {
         }
     }
 
+}
+
+private struct ChildVoicePickerPresentation: Identifiable {
+    let id = UUID()
+    let children: [ChildVoiceChild]
+    let shouldSwitchToReviewAfterCapture: Bool
+}
+
+private struct DirectChildVoiceCapturePresentation: Identifiable {
+    let id = UUID()
+    let classID: String
+    let className: String
+    let child: ChildVoiceChild
 }
 
 #if DEBUG

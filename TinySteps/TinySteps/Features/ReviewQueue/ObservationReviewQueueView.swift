@@ -6,12 +6,14 @@ struct ObservationReviewQueueView: View {
     @State private var model: ObservationReviewQueueModel
     @State private var pendingDeleteItem: PortfolioReviewItem?
     @State private var editingDraft: ObservationCaptureDraft?
+    @State private var editingPhotoSession: FaceCaptureSession?
 
     private let selectedContextTitle: String
     private let session: AuthSession
     private let selectedClass: MBClass?
     private let draftStore: ObservationCaptureDraftStore
     private let photoDraftStore: FaceCaptureDraftStore
+    private let faceEnrollmentStore: FaceEnrollmentStore
     private let canShowClassSwitcher: Bool
     private let onShowClassSwitcher: () -> Void
     private let onDraftsChanged: (Int) -> Void
@@ -32,6 +34,7 @@ struct ObservationReviewQueueView: View {
         canShowClassSwitcher: Bool,
         draftStore: ObservationCaptureDraftStore,
         photoDraftStore: FaceCaptureDraftStore,
+        faceEnrollmentStore: FaceEnrollmentStore,
         publisher: ObservationDraftPublishing,
         observationSpeechTranscriber: ObservationSpeechTranscribing,
         observationTaggingService: ObservationTaggingService,
@@ -47,6 +50,7 @@ struct ObservationReviewQueueView: View {
         self.selectedClass = selectedClass
         self.draftStore = draftStore
         self.photoDraftStore = photoDraftStore
+        self.faceEnrollmentStore = faceEnrollmentStore
         self.canShowClassSwitcher = canShowClassSwitcher
         self.onShowClassSwitcher = onShowClassSwitcher
         self.onDraftsChanged = onDraftsChanged
@@ -97,6 +101,16 @@ struct ObservationReviewQueueView: View {
         .onChange(of: model.reviewCount) { _, count in
             onDraftsChanged(count)
         }
+        .task(id: model.statusMessage) {
+            guard let statusMessage = model.statusMessage else {
+                return
+            }
+
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(.easeOut(duration: 0.28)) {
+                model.clearStatusMessage(ifCurrentMessage: statusMessage)
+            }
+        }
         .fullScreenCover(item: $editingDraft) { draft in
             ObservationCaptureView(
                 captureSession: ObservationCaptureSession(
@@ -118,6 +132,21 @@ struct ObservationReviewQueueView: View {
                 session: session,
                 onDismiss: {
                     editingDraft = nil
+                    Task {
+                        await model.load()
+                        onDraftsChanged(model.reviewCount)
+                    }
+                }
+            )
+        }
+        .fullScreenCover(item: $editingPhotoSession) { captureSession in
+            FaceCaptureView(
+                session: session,
+                captureSession: captureSession,
+                faceEnrollmentStore: faceEnrollmentStore,
+                draftStore: photoDraftStore,
+                onSaved: {
+                    editingPhotoSession = nil
                     Task {
                         await model.load()
                         onDraftsChanged(model.reviewCount)
@@ -292,7 +321,11 @@ struct ObservationReviewQueueView: View {
                             }
                         },
                         onEdit: {
-                            editingDraft = item.noteDraft
+                            if let draft = item.noteDraft {
+                                editingDraft = draft
+                            } else if let draft = item.photoDraft {
+                                editingPhotoSession = photoEditSession(for: draft)
+                            }
                         },
                         onDelete: {
                             pendingDeleteItem = item
@@ -506,6 +539,53 @@ struct ObservationReviewQueueView: View {
         return fullRoster + missing
     }
 
+    private func photoEditSession(for draft: FaceCaptureDraft) -> FaceCaptureSession {
+        FaceCaptureSession(
+            classID: draft.classID,
+            className: draft.className,
+            rosterSnapshot: Self.faceCaptureStudents(
+                from: draft,
+                fallbackTo: classRosterSnapshot
+            ),
+            initialDraft: draft
+        )
+    }
+
+    private static func faceCaptureStudents(
+        from draft: FaceCaptureDraft,
+        fallbackTo fullRoster: [ObservationRosterStudent]
+    ) -> [FaceCaptureStudentSnapshot] {
+        var seenStudentKeys: Set<String> = []
+        var students = fullRoster.compactMap { student -> FaceCaptureStudentSnapshot? in
+            guard seenStudentKeys.insert(student.studentKey).inserted else {
+                return nil
+            }
+
+            return FaceCaptureStudentSnapshot(
+                studentKey: student.studentKey,
+                userID: student.userID,
+                displayName: student.displayName
+            )
+        }
+
+        for face in draft.faces {
+            guard let studentKey = face.studentKey,
+                  seenStudentKeys.insert(studentKey).inserted else {
+                continue
+            }
+
+            students.append(
+                FaceCaptureStudentSnapshot(
+                    studentKey: studentKey,
+                    userID: face.userID,
+                    displayName: studentKey
+                )
+            )
+        }
+
+        return students
+    }
+
     private static func observationRosterStudent(from member: MBMember) -> ObservationRosterStudent {
         let displayName = member.preferredDisplayName
         return ObservationRosterStudent(
@@ -708,10 +788,16 @@ private struct ObservationReviewItemCard: View {
 
             Spacer(minLength: 8)
 
-            if item.kind == .note {
-                Button("Edit", action: onEdit)
+            Button("Edit", action: onEdit)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color(hex: "#3A342E"))
+                .buttonStyle(.plain)
+                .disabled(isActing)
+
+            if item.kind == .photo {
+                Button("Delete", role: .destructive, action: onDelete)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .foregroundStyle(Color(hex: "#C97A6E"))
                     .buttonStyle(.plain)
                     .disabled(isActing)
             }
@@ -926,6 +1012,7 @@ private extension String {
             canShowClassSwitcher: true,
             draftStore: ObservationReviewPreviewStore(),
             photoDraftStore: InMemoryFaceCaptureDraftStore(),
+            faceEnrollmentStore: FaceEnrollmentStoreUnavailable(),
             publisher: UnavailableObservationDraftPublisher(),
             observationSpeechTranscriber: PreviewObservationSpeechTranscriber(),
             observationTaggingService: DisabledObservationTaggingService(),

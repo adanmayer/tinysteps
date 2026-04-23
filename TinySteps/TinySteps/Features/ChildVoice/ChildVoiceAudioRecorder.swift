@@ -89,8 +89,12 @@ final class ChildVoiceAudioRecorder: NSObject, ChildVoiceAudioRecording {
         let fileURL = resolveRecordingURL(for: filename)
         let audioSession = AVAudioSession.sharedInstance()
 
-        try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        try audioSession.setCategory(
+            .playAndRecord,
+            mode: .spokenAudio,
+            options: [.allowBluetoothHFP, .defaultToSpeaker, .duckOthers]
+        )
+        try audioSession.setActive(true)
 
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -102,14 +106,23 @@ final class ChildVoiceAudioRecorder: NSObject, ChildVoiceAudioRecording {
 
         do {
             let recorder = try AVAudioRecorder(url: fileURL, settings: settings)
-            recorder.prepareToRecord()
+            guard recorder.prepareToRecord() else {
+                try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+                throw ChildVoiceAudioRecorderError.unableToPrepareRecording
+            }
             guard recorder.record() else {
+                try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
                 throw ChildVoiceAudioRecorderError.failedToStartRecording
             }
             self.recorder = recorder
             self.currentFilename = filename
             return filename
+        } catch let recorderError as ChildVoiceAudioRecorderError {
+            try? fileManager.removeItem(at: fileURL)
+            throw recorderError
         } catch {
+            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            try? fileManager.removeItem(at: fileURL)
             throw ChildVoiceAudioRecorderError.unableToPrepareRecording
         }
     }
@@ -119,9 +132,11 @@ final class ChildVoiceAudioRecorder: NSObject, ChildVoiceAudioRecording {
             throw ChildVoiceAudioRecorderError.noActiveRecording
         }
 
+        let duration = recorder.currentTime
         recorder.stop()
         self.recorder = nil
         self.currentFilename = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         let url = resolveRecordingURL(for: filename)
         try? fileManager.setAttributes(
             [.protectionKey: FileProtectionType.complete],
@@ -129,7 +144,7 @@ final class ChildVoiceAudioRecorder: NSObject, ChildVoiceAudioRecording {
         )
         return ChildVoiceRecordingResult(
             localFilename: filename,
-            duration: recorder.currentTime,
+            duration: duration,
             createdAt: Date()
         )
     }
@@ -141,6 +156,7 @@ final class ChildVoiceAudioRecorder: NSObject, ChildVoiceAudioRecording {
         recorder?.stop()
         recorder = nil
         currentFilename = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         try deleteRecording(filename: filename)
     }
 

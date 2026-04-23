@@ -4,7 +4,6 @@ struct ChildVoiceCaptureView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ChildVoiceCaptureViewModel
     private let onSaved: (ChildVoiceDraft) -> Void
-    private let modeTitle: String
 
     init(
         session: ChildVoiceCaptureSession,
@@ -14,47 +13,47 @@ struct ChildVoiceCaptureView: View {
             wrappedValue: ChildVoiceCaptureViewModel(session: session)
         )
         self.onSaved = onSaved
-        switch session.mode {
-        case .photoAttachment:
-            modeTitle = "Photo voice"
-        case .standaloneNote:
-            modeTitle = "Child voice"
-        }
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                headerRow
+            ZStack {
+                Color(hex: "#F3ECDE")
+                    .ignoresSafeArea()
 
-                VStack(spacing: 26) {
-                    Text(modeTitle)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Color(hex: "#3A342E"))
+                VStack(spacing: 0) {
+                    topBar
+                        .padding(.horizontal, 24)
+                        .padding(.top, 12)
 
-                    Text("Capture a short voice note for \(viewModel.childName).")
-                        .font(.subheadline)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(Color(hex: "#6D6355"))
-                        .padding(.horizontal, 16)
+                    assentConfirmationCard
+                        .padding(.horizontal, 24)
+                        .padding(.top, 22)
+
+                    Spacer(minLength: 18)
+
+                    titleBlock
+                        .padding(.horizontal, 28)
 
                     stateContent
+                        .padding(.top, 20)
+                        .padding(.horizontal, 22)
 
                     if case .failed(let message) = viewModel.state {
                         Text(message)
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(Color(hex: "#B94A3C"))
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, 32)
+                            .padding(.top, 16)
                     }
-                }
-                .frame(maxHeight: .infinity)
 
-                actionRow
+                    Spacer(minLength: 28)
+
+                    actionRow
+                        .padding(.horizontal, 24)
+                }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
             .onChange(of: viewModel.state) { _, newState in
                 guard case .saved = newState, let draft = viewModel.savedDraft else {
                     return
@@ -65,64 +64,23 @@ struct ChildVoiceCaptureView: View {
             .onDisappear {
                 viewModel.cancelIfNeeded()
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") {
-                        viewModel.cancel()
-                        dismiss()
-                    }
-                    .foregroundStyle(Color(hex: "#3A342E"))
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
         }
     }
 
     @ViewBuilder
     private var stateContent: some View {
-        VStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .stroke(Color(hex: "#8DA67A"), lineWidth: 2)
-                    .frame(width: 170, height: 170)
-                    .opacity(viewModel.state == .ready || viewModel.state == .recording ? 1 : 0.45)
-
-                if case .recording = viewModel.state {
-                    PulseCircle()
-                }
-
-                Image(systemName: iconName)
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(iconColor)
-                    .frame(width: 90, height: 90)
-                    .background(
-                        Circle()
-                            .fill(iconBackground)
-                    )
-            }
-            .frame(height: 190)
+        VStack(spacing: 18) {
+            recordingControl
 
             Text(viewModel.recordingTimeText)
-                .font(.system(.title2, design: .monospaced))
-                .foregroundStyle(Color(hex: "#3A342E"))
-                .padding(.vertical, 4)
+                .font(.system(size: 28, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color(hex: "#817669"))
+                .padding(.top, 6)
 
             if case .recorded = viewModel.state {
-                Button {
-                    viewModel.togglePlayback()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                        Text(viewModel.isPlaying ? "Pause" : "Play")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(hex: "#3A342E"))
-                    .frame(height: 40)
-                    .frame(maxWidth: .infinity)
-                    .background(Color(hex: "#F0E8D7"))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
+                recordedControls
             }
         }
     }
@@ -132,40 +90,11 @@ struct ChildVoiceCaptureView: View {
         VStack(spacing: 12) {
             switch viewModel.state {
             case .askingAssent:
-                Button("Tap here if \(viewModel.childName) said yes") {
-                    Task {
-                        await viewModel.begin()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-            case .ready:
-                Button("Start recording") {
-                    viewModel.startRecording()
-                }
-                .buttonStyle(.borderedProminent)
-            case .recording:
-                Button("Stop") {
-                    viewModel.stopRecording()
-                }
-                .buttonStyle(.borderedProminent)
+                assentButton
+            case .ready, .recording:
+                captureActionButtons(canSave: false)
             case .recorded:
-                HStack(spacing: 12) {
-                    Button("Rerecord") {
-                        viewModel.rerecord()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Discard") {
-                        viewModel.discardRecording()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Save") {
-                        viewModel.saveDraft()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.state != .recorded)
-                }
+                captureActionButtons(canSave: true)
             case .savingLocalDraft:
                 HStack {
                     ProgressView()
@@ -185,45 +114,395 @@ struct ChildVoiceCaptureView: View {
             }
         }
         .font(.subheadline.weight(.semibold))
-        .padding(.bottom, 6)
+        .padding(.bottom, 24)
     }
 
-    private var iconName: String {
-        switch viewModel.state {
-        case .recording:
-            "mic.fill"
-        case .ready, .askingAssent, .recorded, .saved, .savingLocalDraft, .failed:
-            "mic"
+    private var recordingControl: some View {
+        Button {
+            Task {
+                await viewModel.handlePrimaryRecordingControl()
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .stroke(Color(hex: "#E7D5B9").opacity(0.54), lineWidth: 1)
+                    .frame(width: 250, height: 250)
+
+                Circle()
+                    .stroke(controlRingColor.opacity(controlRingOpacity), lineWidth: 1)
+                    .frame(width: 218, height: 218)
+                    .scaleEffect(viewModel.state == .recording ? 1.08 : 1)
+
+                if case .recording = viewModel.state {
+                    PulseCircle()
+                }
+
+                Circle()
+                    .fill(controlFill)
+                    .frame(width: 128, height: 128)
+                    .shadow(color: controlShadowColor, radius: 20, x: 0, y: 10)
+
+                Image(systemName: controlIconName)
+                    .font(.system(size: 42, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(height: 264)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isRecordingControlEnabled == false)
+        .accessibilityLabel(recordingControlAccessibilityLabel)
+        .accessibilityValue(recordingControlAccessibilityValue)
+    }
+
+    private var recordedControls: some View {
+        HStack(spacing: 12) {
+            Button {
+                viewModel.togglePlayback()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                    Text(viewModel.isPlaying ? "Pause" : "Play")
+                }
+                .frame(height: 42)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(hex: "#3A342E"))
+            .background(Color(hex: "#F0E8D7"))
+            .clipShape(Capsule())
+
+            Button {
+                viewModel.rerecord()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                    Text("Rerecord")
+                }
+                .frame(height: 42)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(hex: "#3A342E"))
+            .background(Color(hex: "#F5F0E7"))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color(hex: "#E1D7C6"), lineWidth: 1)
+            )
         }
     }
 
-    private var iconColor: Color {
-        switch viewModel.state {
-        case .recording:
-            .red
-        case .ready, .askingAssent, .recorded, .saved, .savingLocalDraft, .failed:
-            Color(hex: "#3A342E")
-        }
-    }
-
-    private var iconBackground: Color {
-        switch viewModel.state {
-        case .recording:
-            Color(hex: "#FFE5E6")
-        case .ready, .askingAssent, .recorded, .saved, .savingLocalDraft, .failed:
-            Color(hex: "#F3ECDC")
-        }
-    }
-
-    private var headerRow: some View {
+    private var topBar: some View {
         HStack {
-            Text("Child Voice")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Color(hex: "#3A342E"))
+            Button {
+                viewModel.cancel()
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Color(hex: "#6D6355"))
+                    .frame(width: 64, height: 64)
+                    .background(Color(hex: "#FFFDF8"))
+                    .clipShape(Circle())
+                    .shadow(color: Color(hex: "#6E6456").opacity(0.12), radius: 18, x: 0, y: 8)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close child voice capture")
+
             Spacer()
         }
-        .padding(.horizontal, 4)
-        .padding(.top, 2)
+    }
+
+    private var assentConfirmationCard: some View {
+        HStack(spacing: 18) {
+            childAvatar
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(assentTitle)
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#3A342E"))
+                        .lineLimit(1)
+
+                    if viewModel.didConfirmChildAssent {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 25, weight: .semibold))
+                            .foregroundStyle(Color(hex: "#8DA67A"))
+                    }
+                }
+
+                if viewModel.didConfirmChildAssent {
+                    Text(assentSubtitle)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(Color(hex: "#6D6355"))
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 32)
+        .frame(height: 108)
+        .background(Color(hex: "#FFFDF8"))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: Color(hex: "#6E6456").opacity(0.08), radius: 22, x: 0, y: 12)
+    }
+
+    private var childAvatar: some View {
+        ZStack {
+            if let avatarURL = viewModel.childAvatarURL {
+                AsyncImage(url: avatarURL) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        initialsAvatar
+                    }
+                }
+            } else {
+                initialsAvatar
+            }
+        }
+        .frame(width: 58, height: 58)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color(hex: "#8DA67A"), lineWidth: 1.2)
+        )
+    }
+
+    private var initialsAvatar: some View {
+        Circle()
+            .fill(Color(hex: "#8DA67A"))
+            .overlay(
+                Text(viewModel.childInitials)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+            )
+    }
+
+    private var titleBlock: some View {
+        VStack(spacing: 18) {
+            Text("In \(viewModel.childName)'s words")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(Color(hex: "#DDB15F"))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+
+            Text(instructionText)
+                .font(.system(size: 23, weight: .regular))
+                .foregroundStyle(Color(hex: "#6D6355"))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .allowsTightening(true)
+        }
+    }
+
+    private var assentTitle: String {
+        viewModel.didConfirmChildAssent ? "\(viewModel.childName) said yes" : "Ask \(viewModel.childName) first"
+    }
+
+    private var assentSubtitle: String {
+        "Pass the phone to \(viewModel.childName)..."
+    }
+
+    private var instructionText: String {
+        switch viewModel.state {
+        case .askingAssent:
+            return "Ask \(viewModel.childName) if they want to record"
+        case .ready:
+            return "Tap the microphone to begin"
+        case .recording:
+            return "Tap stop when \(viewModel.childName) is finished"
+        case .recorded:
+            return "Listen back or record again"
+        case .savingLocalDraft:
+            return "Saving..."
+        case .saved:
+            return "Saved"
+        case .failed:
+            return "Try again when you are ready"
+        }
+    }
+
+    private var assentButton: some View {
+        Button {
+            Task {
+                await viewModel.begin()
+            }
+        } label: {
+            Text("\(viewModel.childName) said yes")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(height: 62)
+                .frame(maxWidth: .infinity)
+                .background(Color(hex: "#8DA67A"))
+                .clipShape(Capsule())
+                .shadow(color: Color(hex: "#6B8659").opacity(0.18), radius: 16, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func captureActionButtons(canSave: Bool) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                viewModel.cancel()
+                dismiss()
+            } label: {
+                Text("Cancel")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#6D6355"))
+                    .frame(height: 58)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(hex: "#FFFDF8").opacity(0.7))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(hex: "#E1D7C6"), lineWidth: 1.1)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            saveButton(isEnabled: canSave)
+        }
+    }
+
+    private func saveButton(isEnabled: Bool) -> some View {
+        Button {
+            viewModel.saveDraft()
+        } label: {
+            Text("Save")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isEnabled ? .white : Color(hex: "#6E6456").opacity(0.58))
+                .frame(height: 58)
+                .frame(maxWidth: .infinity)
+                .background(Color(hex: "#8DA67A").opacity(isEnabled ? 1 : 0.24))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color(hex: "#8DA67A").opacity(isEnabled ? 0 : 0.42), lineWidth: 1.1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(isEnabled == false)
+    }
+
+    private var isRecordingControlEnabled: Bool {
+        switch viewModel.state {
+        case .ready, .recording:
+            return true
+        case .askingAssent, .recorded, .savingLocalDraft, .saved, .failed:
+            return false
+        }
+    }
+
+    private var controlIconName: String {
+        switch viewModel.state {
+        case .recording:
+            return "stop.fill"
+        case .recorded, .saved:
+            return "checkmark"
+        case .savingLocalDraft:
+            return "hourglass"
+        case .failed:
+            return "exclamationmark"
+        case .ready, .askingAssent:
+            return "mic.fill"
+        }
+    }
+
+    private var controlFill: LinearGradient {
+        let colors: [Color]
+        switch viewModel.state {
+        case .recording:
+            colors = [
+                Color(hex: "#C85649"),
+                Color(hex: "#A8382F")
+            ]
+        case .recorded, .saved:
+            colors = [
+                Color(hex: "#8DA67A"),
+                Color(hex: "#6B8659")
+            ]
+        case .failed:
+            colors = [
+                Color(hex: "#B94A3C"),
+                Color(hex: "#92352A")
+            ]
+        case .savingLocalDraft:
+            colors = [
+                Color(hex: "#A89E8F"),
+                Color(hex: "#817669")
+            ]
+        case .ready, .askingAssent:
+            colors = [
+                Color(hex: "#8DA67A"),
+                Color(hex: "#6B8659")
+            ]
+        }
+
+        return LinearGradient(
+            colors: colors,
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var controlRingColor: Color {
+        switch viewModel.state {
+        case .recording, .failed:
+            return Color(hex: "#C85649")
+        case .ready, .askingAssent, .recorded, .savingLocalDraft, .saved:
+            return Color(hex: "#8DA67A")
+        }
+    }
+
+    private var controlRingOpacity: Double {
+        viewModel.state == .recording ? 0.28 : 0.14
+    }
+
+    private var controlShadowColor: Color {
+        switch viewModel.state {
+        case .recording, .failed:
+            return Color(hex: "#8F3A31").opacity(0.24)
+        case .ready, .askingAssent, .recorded, .savingLocalDraft, .saved:
+            return Color(hex: "#6E6456").opacity(0.24)
+        }
+    }
+
+    private var recordingControlAccessibilityLabel: String {
+        switch viewModel.state {
+        case .askingAssent:
+            return "Start child voice recording after assent"
+        case .ready:
+            return "Start child voice recording"
+        case .recording:
+            return "Stop child voice recording"
+        case .recorded:
+            return "Child voice recording complete"
+        case .savingLocalDraft:
+            return "Saving child voice recording"
+        case .saved:
+            return "Child voice recording saved"
+        case .failed:
+            return "Child voice recording failed"
+        }
+    }
+
+    private var recordingControlAccessibilityValue: String {
+        switch viewModel.state {
+        case .recording:
+            return "Recording"
+        case .recorded:
+            return "Recorded"
+        case .askingAssent, .ready, .savingLocalDraft, .saved, .failed:
+            return "Not recording"
+        }
     }
 
 }
@@ -235,7 +514,7 @@ private struct PulseCircle: View {
     var body: some View {
         Circle()
             .stroke(Color(hex: "#FFB6B6").opacity(opacity), lineWidth: 2)
-            .frame(width: 170, height: 170)
+            .frame(width: 236, height: 236)
             .scaleEffect(scale)
             .onAppear {
                 withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {

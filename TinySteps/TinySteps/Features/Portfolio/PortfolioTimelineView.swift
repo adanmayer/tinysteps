@@ -19,6 +19,9 @@ struct PortfolioTimelineView: View {
     private let classesService: ClassesService
     private let usesExternalClassSwitcher: Bool
     private let onShowScopeSwitcher: () -> Void
+    private let onCaptureObservation: (() -> Void)?
+    private let onCaptureImage: (() -> Void)?
+    private let onCaptureChildVoice: (() -> Void)?
 
     init(
         session: AuthSession,
@@ -29,7 +32,10 @@ struct PortfolioTimelineView: View {
         canShowScopeSwitcher: Bool,
         portfolioService: PortfolioService,
         classesService: ClassesService,
-        onShowScopeSwitcher: @escaping () -> Void
+        onShowScopeSwitcher: @escaping () -> Void,
+        onCaptureObservation: (() -> Void)? = nil,
+        onCaptureImage: (() -> Void)? = nil,
+        onCaptureChildVoice: (() -> Void)? = nil
     ) {
         let classID = classContext.apiClassID
         let title = selectedScopeTitle.isEmpty ? selectedClass?.displayName ?? "All Classes" : selectedScopeTitle
@@ -44,6 +50,9 @@ struct PortfolioTimelineView: View {
         self.classesService = classesService
         self.usesExternalClassSwitcher = true
         self.onShowScopeSwitcher = onShowScopeSwitcher
+        self.onCaptureObservation = onCaptureObservation
+        self.onCaptureImage = onCaptureImage
+        self.onCaptureChildVoice = onCaptureChildVoice
         _selectedClassID = State(initialValue: classID)
         _classScopes = State(
             initialValue: [
@@ -85,6 +94,9 @@ struct PortfolioTimelineView: View {
         self.classesService = classesService
         self.usesExternalClassSwitcher = false
         self.onShowScopeSwitcher = onShowScopeSwitcher
+        self.onCaptureObservation = nil
+        self.onCaptureImage = nil
+        self.onCaptureChildVoice = nil
         _selectedClassID = State(initialValue: nil)
         _classScopes = State(
             initialValue: [
@@ -112,6 +124,13 @@ struct PortfolioTimelineView: View {
 
             timelineContent
         }
+        .overlay(alignment: .bottomTrailing) {
+            if shouldShowCaptureMenu {
+                captureMenuButton
+                    .padding(.trailing, 22)
+                    .padding(.bottom, 28)
+            }
+        }
         .task(id: reloadIdentity) {
             await loadLocalClassScopesIfNeeded()
             await model.reload(
@@ -120,6 +139,47 @@ struct PortfolioTimelineView: View {
                 availableChildren: availableChildren
             )
         }
+    }
+
+    private var captureMenuButton: some View {
+        Menu {
+            Button {
+                onCaptureObservation?()
+            } label: {
+                Label("Observation", systemImage: "mic.fill")
+            }
+            .disabled(onCaptureObservation == nil || canLaunchCapture == false)
+
+            Button {
+                onCaptureImage?()
+            } label: {
+                Label("Image", systemImage: "camera.fill")
+            }
+            .disabled(onCaptureImage == nil || canLaunchCapture == false)
+
+            Button {
+                onCaptureChildVoice?()
+            } label: {
+                Label("Child voice", systemImage: "waveform.circle.fill")
+            }
+            .disabled(onCaptureChildVoice == nil || canLaunchCapture == false)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color(hex: "#6F9258"))
+                    .frame(width: 64, height: 64)
+                    .shadow(color: Color(hex: "#6F9258").opacity(0.34), radius: 18, x: 0, y: 10)
+
+                Image(systemName: "plus")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .overlay(
+                Circle()
+                    .stroke(Color(hex: "#FFFDF8").opacity(0.92), lineWidth: 3)
+            )
+        }
+        .accessibilityLabel("Capture")
     }
 
     private var timelineContent: some View {
@@ -399,7 +459,7 @@ struct PortfolioTimelineView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
-            .padding(.bottom, 28)
+            .padding(.bottom, shouldShowCaptureMenu ? 96 : 28)
         }
         .refreshable {
             await model.reload(
@@ -460,6 +520,20 @@ struct PortfolioTimelineView: View {
         }
 
         return student.displayName.isEmpty ? "Student" : student.displayName
+    }
+
+    private var shouldShowCaptureMenu: Bool {
+        role == .teacherStream
+            && selectedClassID != nil
+            && (
+                onCaptureObservation != nil ||
+                onCaptureImage != nil ||
+                onCaptureChildVoice != nil
+            )
+    }
+
+    private var canLaunchCapture: Bool {
+        selectedClassID != nil && model.isLoading == false
     }
 
     private var childContextIdentity: String {
@@ -711,74 +785,82 @@ private struct PortfolioEntryAudioPlayerView: View {
     @State private var endObserver: NSObjectProtocol?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                Button(action: togglePlayback) {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 52, height: 52)
-                        .background(Color(hex: "#6B8659"))
-                        .clipShape(Circle())
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 18) {
+                playButton
+                waveformBars
+
+                Spacer(minLength: 12)
+
+                if let durationText {
+                    Text(durationText)
+                        .font(.system(size: 23, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: "#6D6355"))
+                        .monospacedDigit()
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(prompt ?? "Child voice")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color(hex: "#3A342E"))
-                        .lineLimit(2)
-
-                    if let durationText {
-                        Text(durationText)
-                            .font(.caption)
-                            .foregroundStyle(Color(hex: "#6E6456"))
-                    }
-                }
-
-                Spacer()
             }
 
-            waveformProgressBar
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color(hex: "#9C9488"))
+
+                Text(prompt ?? "Child voice")
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(Color(hex: "#9C9488"))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(14)
-        .background(Color(hex: "#F5EDE0"))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .padding(.horizontal, 22)
+        .padding(.vertical, 22)
+        .background(Color(hex: "#FFFDF8"))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: Color(hex: "#6E6456").opacity(0.08), radius: 18, x: 0, y: 8)
         .onDisappear {
             stopPlayback()
             teardownPlayer()
         }
     }
 
-    private var waveformProgressBar: some View {
-        GeometryReader { geometry in
-            let progressWidth = min(geometry.size.width, geometry.size.width * playbackProgress)
-            let bars = [4, 9, 6, 14, 10, 16, 8, 11, 5, 13, 7, 12]
-
-            ZStack(alignment: .leading) {
-                HStack(spacing: 4) {
-                    ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
-                        Capsule()
-                            .fill(Color(hex: "#CBBEA7"))
-                            .frame(width: 4, height: CGFloat(bar))
-                    }
-                }
-                .frame(height: 18)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .padding(.horizontal, 1)
-
-                Capsule()
-                    .fill(Color(hex: "#6B8659").opacity(0.45))
-                    .frame(width: progressWidth, height: 18)
-                    .allowsHitTesting(false)
-            }
-            .frame(height: 18)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color(hex: "#D9CAB3"), lineWidth: 1)
-            )
+    private var playButton: some View {
+        Button(action: togglePlayback) {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 58, height: 58)
+                .background(Color(hex: "#8DA67A"))
+                .clipShape(Circle())
         }
-        .frame(height: 18)
+        .buttonStyle(.plain)
+        .accessibilityLabel(isPlaying ? "Pause child voice" : "Play child voice")
+    }
+
+    private var waveformBars: some View {
+        let bars = [16, 27, 40, 30, 46, 35, 24, 34, 28, 39, 22, 31, 18]
+        let activeBars = max(0, min(bars.count, Int((playbackProgress * Double(bars.count)).rounded(.up))))
+
+        return HStack(alignment: .center, spacing: 6) {
+            ForEach(Array(bars.enumerated()), id: \.offset) { index, bar in
+                Capsule()
+                    .fill(waveformColor(for: index, activeBars: activeBars))
+                    .frame(width: 6, height: CGFloat(bar))
+            }
+        }
+        .frame(height: 48)
+        .accessibilityHidden(true)
+    }
+
+    private func waveformColor(for index: Int, activeBars: Int) -> Color {
+        guard activeBars > 0 else {
+            return Color(hex: "#D8D5D0").opacity(0.74)
+        }
+
+        return index < activeBars
+            ? Color(hex: "#D99082")
+            : Color(hex: "#D8D5D0").opacity(0.74)
     }
 
     private func setupPlayerIfNeeded() {
@@ -952,13 +1034,8 @@ private struct PortfolioEntryCard: View {
 
     @ViewBuilder
     private var bodyText: some View {
-        if entry.kind == .childVoice, let promptText = entry.childVoicePrompt {
-            Text(promptText)
-                .font(.body)
-                .lineSpacing(7)
-                .foregroundStyle(Color(hex: "#3A342E"))
-                .lineLimit(5)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        if entry.kind == .childVoice {
+            EmptyView()
         } else if let bodyText = entry.bodyText {
             Text(bodyText)
                 .font(.body)
@@ -971,13 +1048,13 @@ private struct PortfolioEntryCard: View {
 
     @ViewBuilder
     private var tagGrid: some View {
-        if entry.tags.isEmpty == false {
+        if visibleTags.isEmpty == false {
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
                 alignment: .leading,
                 spacing: 8
             ) {
-                ForEach(entry.tags.prefix(6), id: \.self) { tag in
+                ForEach(visibleTags.prefix(6), id: \.self) { tag in
                     Text(tag)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Color(hex: "#6B8659"))
@@ -993,6 +1070,17 @@ private struct PortfolioEntryCard: View {
                         )
                 }
             }
+        }
+    }
+
+    private var visibleTags: [String] {
+        guard entry.kind == .photo || entry.kind == .image else {
+            return entry.tags
+        }
+
+        return entry.tags.filter { tag in
+            tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare("Photo") != .orderedSame
         }
     }
 

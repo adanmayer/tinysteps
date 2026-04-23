@@ -4,6 +4,19 @@ struct ChildVoiceChild: Codable, Equatable, Identifiable, Sendable {
     let studentKey: String
     let userID: String
     let displayName: String
+    let avatarURL: URL?
+
+    init(
+        studentKey: String,
+        userID: String,
+        displayName: String,
+        avatarURL: URL? = nil
+    ) {
+        self.studentKey = studentKey
+        self.userID = userID
+        self.displayName = displayName
+        self.avatarURL = avatarURL
+    }
 
     var id: String {
         studentKey
