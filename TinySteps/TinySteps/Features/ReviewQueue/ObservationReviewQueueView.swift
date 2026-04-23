@@ -183,7 +183,6 @@ struct ObservationReviewQueueView: View {
     private var reviewContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            titleSection
             filterStrip
 
             if let message = model.errorMessage {
@@ -208,41 +207,12 @@ struct ObservationReviewQueueView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Button(action: onShowClassSwitcher) {
-                HStack(spacing: 10) {
-                    Text(classPickerTitle)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color(hex: "#3A342E"))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.76)
-                    Image(systemName: "chevron.down")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color(hex: "#6E6456"))
-                }
-                .padding(.horizontal, 18)
-                .frame(height: 44)
-                .background(Color(hex: "#FFFDF8"))
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.05), radius: 12, x: 0, y: 6)
-                .overlay(
-                    Capsule()
-                        .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.5)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(!canShowClassSwitcher)
-
-            Spacer()
-
-            Text("\(model.readyCount) ready")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(Color(hex: "#6B8659"))
-                .padding(.horizontal, 14)
-                .frame(height: 28)
-                .background(Color(hex: "#8DA67A").opacity(0.14))
-                .clipShape(Capsule())
-        }
+        ClassPageTitleHeader(
+            title: "Review",
+            classTitle: classPickerTitle,
+            canShowClassSwitcher: canShowClassSwitcher,
+            onShowClassSwitcher: onShowClassSwitcher
+        )
         .padding(.horizontal, 20)
         .padding(.top, 16)
     }
@@ -298,9 +268,10 @@ struct ObservationReviewQueueView: View {
                 }
             }
             .padding(.horizontal, 20)
+            .padding(.vertical, 2)
         }
         .padding(.top, 22)
-        .padding(.bottom, 14)
+        .padding(.bottom, 12)
     }
 
     private var draftFeed: some View {

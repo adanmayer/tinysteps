@@ -123,9 +123,10 @@ struct PortfolioTimelineView: View {
     private var timelineContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            titleSection
             rangeFilter
-            studentFilterStrip
+            if role == .parentJournal {
+                studentFilterStrip
+            }
 
             if let errorMessage = model.errorMessage {
                 messageBanner(errorMessage)
@@ -141,26 +142,38 @@ struct PortfolioTimelineView: View {
         }
     }
 
+    @ViewBuilder
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                classSelector
+        if role == .teacherStream {
+            ClassPageTitleHeader(
+                title: "Stream",
+                classTitle: scopePickerTitle,
+                canShowClassSwitcher: canShowScopeSwitcher,
+                onShowClassSwitcher: onShowScopeSwitcher
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    classSelector
 
-                Spacer()
+                    Spacer()
 
-                countBadge
-            }
-
-            if role == .parentJournal, canShowScopeSwitcher {
-                Button(action: onShowScopeSwitcher) {
-                    classSelectorLabel(title: childPickerTitle, showsChevron: canShowScopeSwitcher)
+                    countBadge
                 }
-                .buttonStyle(.plain)
-                .disabled(!canShowScopeSwitcher)
+
+                if canShowScopeSwitcher {
+                    Button(action: onShowScopeSwitcher) {
+                        classSelectorLabel(title: childPickerTitle, showsChevron: canShowScopeSwitcher)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canShowScopeSwitcher)
+                }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
     }
 
     private var countBadge: some View {
@@ -245,33 +258,83 @@ struct PortfolioTimelineView: View {
     }
 
     private var rangeFilter: some View {
-        HStack(spacing: 4) {
-            ForEach(PortfolioRangeFilter.allCases) { range in
-                Button {
-                    model.selectRange(range)
-                } label: {
-                    Text(range.rawValue)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(model.selectedRange == range ? Color(hex: "#6B8659") : Color(hex: "#6E6456"))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                        .background(
-                            Capsule()
-                                .fill(model.selectedRange == range ? Color(hex: "#FFFDF8") : Color.clear)
-                        )
+        HStack(spacing: 10) {
+            HStack(spacing: 4) {
+                ForEach(PortfolioRangeFilter.allCases) { range in
+                    Button {
+                        model.selectRange(range)
+                    } label: {
+                        Text(range.rawValue)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(model.selectedRange == range ? Color(hex: "#6B8659") : Color(hex: "#6E6456"))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 36)
+                            .background(
+                                Capsule()
+                                    .fill(model.selectedRange == range ? Color(hex: "#FFFDF8") : Color.clear)
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+            }
+            .padding(4)
+            .background(Color(hex: "#F5EDE0"))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.6)
+            )
+
+            if role == .teacherStream {
+                studentSelectorMenu
             }
         }
-        .padding(4)
-        .background(Color(hex: "#F5EDE0"))
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.6)
-        )
         .padding(.horizontal, 20)
         .padding(.top, 18)
+        .padding(.bottom, role == .teacherStream ? 4 : 0)
+    }
+
+    private var studentSelectorMenu: some View {
+        Menu {
+            Button {
+                model.selectStudent(nil)
+            } label: {
+                Label("All", systemImage: model.selectedStudentID == nil ? "checkmark" : "circle")
+            }
+
+            ForEach(model.students) { student in
+                Button {
+                    model.selectStudent(student.id)
+                } label: {
+                    Label(
+                        student.displayName,
+                        systemImage: model.selectedStudentID == student.id ? "checkmark" : "circle"
+                    )
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(selectedStudentFilterTitle)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#6E6456"))
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 44)
+            .background(Color(hex: "#FFFDF8"))
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 5)
+            .overlay(
+                Capsule()
+                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 0.6)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var studentFilterStrip: some View {
@@ -361,6 +424,17 @@ struct PortfolioTimelineView: View {
 
     private var childPickerTitle: String {
         selectedScopeTitle.isEmpty ? "All Children" : selectedScopeTitle
+    }
+
+    private var selectedStudentFilterTitle: String {
+        guard
+            let selectedStudentID = model.selectedStudentID,
+            let student = model.students.first(where: { $0.id == selectedStudentID })
+        else {
+            return "All"
+        }
+
+        return student.initials.isEmpty ? "Student" : student.initials
     }
 
     private var childContextIdentity: String {

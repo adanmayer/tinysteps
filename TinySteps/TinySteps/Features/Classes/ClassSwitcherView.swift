@@ -83,6 +83,8 @@ struct ClassSwitcherView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .scrollContentBackground(.hidden)
+                .background(Color(hex: "#FBF6EE"))
 
                 if filteredOptions.isEmpty {
                     Text("No classes found")
@@ -93,6 +95,7 @@ struct ClassSwitcherView: View {
             }
             .navigationTitle("Switch Class")
             .navigationBarTitleDisplayMode(.inline)
+            .background(Color(hex: "#FBF6EE").ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {

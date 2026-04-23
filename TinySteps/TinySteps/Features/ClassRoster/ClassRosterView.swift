@@ -121,14 +121,12 @@ struct ClassRosterView: View {
 
     private var chooseClassStateView: some View {
         VStack(spacing: 14) {
-            HStack {
-                Button(action: onShowClassSwitcher) {
-                    classSelectorLabel(title: "Choose a class", showsChevron: true)
-                }
-                .disabled(!canShowClassSwitcher)
-
-                Spacer()
-            }
+            ClassPageTitleHeader(
+                title: "Class",
+                classTitle: "Choose a class",
+                canShowClassSwitcher: canShowClassSwitcher,
+                onShowClassSwitcher: onShowClassSwitcher
+            )
             .padding(.horizontal, 20)
             .padding(.top, 16)
 
@@ -152,67 +150,47 @@ struct ClassRosterView: View {
 
     private var classRosterHeader: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Button(action: onShowClassSwitcher) {
-                    classSelectorLabel(title: classPickerTitle, showsChevron: true)
-                }
-                .disabled(!canShowClassSwitcher)
-
-                Spacer()
-
-                Button {
+            ClassPageTitleHeader(
+                title: "Class",
+                classTitle: classPickerTitle,
+                canShowClassSwitcher: canShowClassSwitcher,
+                onShowClassSwitcher: onShowClassSwitcher,
+                secondarySystemImage: "gearshape.fill",
+                secondaryAccessibilityLabel: "Class options",
+                onSecondaryAction: {
                     isShowingClassActions = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(Color(hex: "#8DA67A"))
-                        .clipShape(Circle())
                 }
-                .confirmationDialog("Class options", isPresented: $isShowingClassActions, titleVisibility: .visible) {
-                    if classContext != .allClasses,
-                       model.students.isEmpty == false,
-                       model.isLoading == false {
-                        Button("Capture image") {
-                            onCaptureImage(model.students)
-                        }
+            )
+            .confirmationDialog("Class options", isPresented: $isShowingClassActions, titleVisibility: .visible) {
+                if classContext != .allClasses,
+                   model.students.isEmpty == false,
+                   model.isLoading == false {
+                    Button("Capture image") {
+                        onCaptureImage(model.students)
                     }
-
-                    if let observationLaunchContext, model.isLoading == false {
-                        Button("Capture observation") {
-                            onCaptureObservation(observationLaunchContext)
-                        }
-                    }
-
-                    Button("Clear cache") {
-                        Task {
-                            cacheStatusMessage = "Clearing local cache…"
-                            await onClearCache()
-                            cacheStatusMessage = "Local cache cleared."
-                            try? await Task.sleep(nanoseconds: 2200_000_000)
-                            cacheStatusMessage = nil
-                        }
-                    }
-
-                    Button("Log Out", role: .destructive, action: onSignOut)
                 }
+
+                if let observationLaunchContext, model.isLoading == false {
+                    Button("Capture observation") {
+                        onCaptureObservation(observationLaunchContext)
+                    }
+                }
+
+                Button("Clear cache") {
+                    Task {
+                        cacheStatusMessage = "Clearing local cache…"
+                        await onClearCache()
+                        cacheStatusMessage = "Local cache cleared."
+                        try? await Task.sleep(nanoseconds: 2200_000_000)
+                        cacheStatusMessage = nil
+                    }
+                }
+
+                Button("Log Out", role: .destructive, action: onSignOut)
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
-            .padding(.bottom, 4)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Class")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(Color(hex: "#3A342E"))
-                Text(model.headerMetaText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
 
             searchBar
 
@@ -317,42 +295,27 @@ struct ClassRosterView: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color(hex: "#8DA67A"))
-                TextField("Search names", text: Binding(
-                    get: { model.searchText },
-                    set: { model.setSearchText($0) }
-                ))
-                    .textInputAutocapitalization(.none)
-                    .autocorrectionDisabled()
-                    .accessibilityLabel("Search names")
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 44)
-            .background(Color(hex: "#FFFDF8"))
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
-            )
-
-            Button {
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color(hex: "#8DA67A"))
-                    .frame(width: 44, height: 44)
-                    .background(Color(hex: "#FFFDF8"))
-                    .clipShape(Circle())
-            }
-            .overlay(
-                Circle()
-                    .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
-            )
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Color(hex: "#8DA67A"))
+            TextField("Search names", text: Binding(
+                get: { model.searchText },
+                set: { model.setSearchText($0) }
+            ))
+                .textInputAutocapitalization(.none)
+                .autocorrectionDisabled()
+                .accessibilityLabel("Search names")
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 44)
+        .background(Color(hex: "#FFFDF8"))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color(hex: "#E6D8C2"), lineWidth: 1)
+        )
+        .padding(.horizontal, 20)
     }
 
     private var classPickerTitle: String {
