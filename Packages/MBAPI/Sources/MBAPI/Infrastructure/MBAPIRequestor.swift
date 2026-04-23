@@ -698,6 +698,98 @@ final class MBAPIRequestor: MBEndpointRequesting, Sendable {
         return data
     }
 
+    func upload(
+        to absoluteURL: URL,
+        method: String,
+        headers: [String: String],
+        body: Data
+    ) async throws {
+        var request = URLRequest(url: absoluteURL)
+        request.httpMethod = method
+        request.httpBody = body
+
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        if let replayData = await demoDataStore?.snapshotData(for: absoluteURL, responseType: "NoResponse") {
+            _ = replayData
+            return
+        }
+
+        if await demoDataStore?.isReplaying ?? false {
+            await logIssue(
+                kind: .decodingFailed,
+                requestURL: absoluteURL,
+                endpointPath: absoluteURL.path,
+                method: method,
+                context: MBSessionContext(apiBaseURL: absoluteURL, accessToken: "", role: .parent),
+                statusCode: nil,
+                errorDescription: "No demo snapshot available for request."
+            )
+            throw MBClientError.decodingFailed("No demo snapshot available for \(absoluteURL).")
+        }
+
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            if error is CancellationError {
+                throw error
+            }
+
+            await logIssue(
+                kind: .transportError,
+                requestURL: absoluteURL,
+                endpointPath: absoluteURL.path,
+                method: method,
+                context: MBSessionContext(apiBaseURL: absoluteURL, accessToken: "", role: .parent),
+                errorDescription: error.localizedDescription
+            )
+            throw error
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            await logIssue(
+                kind: .invalidResponse,
+                requestURL: absoluteURL,
+                endpointPath: absoluteURL.path,
+                method: method,
+                context: MBSessionContext(apiBaseURL: absoluteURL, accessToken: "", role: .parent),
+                errorDescription: MBClientError.invalidResponse.localizedDescription ?? "Invalid response",
+                responseBody: data
+            )
+            throw MBClientError.invalidResponse
+        }
+
+        guard (200 ..< 300).contains(httpResponse.statusCode) else {
+            await logIssue(
+                kind: .unexpectedStatusCode,
+                requestURL: absoluteURL,
+                endpointPath: absoluteURL.path,
+                method: method,
+                context: MBSessionContext(apiBaseURL: absoluteURL, accessToken: "", role: .parent),
+                statusCode: httpResponse.statusCode,
+                contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                errorDescription: MBClientError.unexpectedStatusCode(httpResponse.statusCode).localizedDescription ?? "Unexpected status code",
+                responseBody: data
+            )
+            throw MBClientError.unexpectedStatusCode(httpResponse.statusCode)
+        }
+
+        await demoDataStore?.storeSnapshot(
+            data,
+            for: absoluteURL,
+            responseType: "NoResponse",
+            endpointPath: absoluteURL.path,
+            statusCode: httpResponse.statusCode,
+            contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+            context: MBSessionContext(apiBaseURL: absoluteURL, accessToken: "", role: .parent)
+        )
+    }
+
     private func logIssue(
         kind: MBAPIIssue.Kind,
         requestURL: URL,

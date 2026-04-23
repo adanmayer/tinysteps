@@ -128,6 +128,8 @@ public extension Portfolio {
             public let photos: [Photo]
             public let assets: [MBFileAsset]
             public let urls: [String]
+            public let audioDescriptionID: String?
+            public let audioDescription: AudioDescription?
             public let starred: Bool?
             public let liked: Bool?
             public let canEdit: Bool?
@@ -247,6 +249,8 @@ public extension Portfolio {
                 photos: [Photo] = [],
                 assets: [MBFileAsset] = [],
                 urls: [String] = [],
+                audioDescriptionID: String? = nil,
+                audioDescription: AudioDescription? = nil,
                 starred: Bool? = nil,
                 liked: Bool? = nil,
                 canEdit: Bool? = nil,
@@ -273,6 +277,8 @@ public extension Portfolio {
                 self.photos = photos
                 self.assets = assets
                 self.urls = urls
+                self.audioDescriptionID = audioDescriptionID
+                self.audioDescription = audioDescription
                 self.starred = starred
                 self.liked = liked
                 self.canEdit = canEdit
@@ -301,6 +307,8 @@ public extension Portfolio {
                 case photos
                 case assets
                 case urls
+                case audioDescriptionID = "audio_description_id"
+                case audioDescription = "audio_description"
                 case starred
                 case liked
                 case canEdit = "can_edit"
@@ -334,6 +342,9 @@ public extension Portfolio {
                 photos = (try? container.decode([Photo].self, forKey: .photos)) ?? []
                 assets = (try? container.decode([MBFileAsset].self, forKey: .assets)) ?? []
                 urls = (try? container.decode([String].self, forKey: .urls)) ?? []
+                audioDescriptionID = (try? container.decodeIfPresent(String.self, forKey: .audioDescriptionID))
+                    ?? (try? MBModelCoding.decodeOptionalStringID(from: container, forKey: .audioDescriptionID))
+                audioDescription = try container.decodeIfPresent(AudioDescription.self, forKey: .audioDescription)
 
                 starred = try container.decodeIfPresent(Bool.self, forKey: .starred)
                 liked = try container.decodeIfPresent(Bool.self, forKey: .liked)
@@ -351,6 +362,10 @@ public extension Portfolio {
                     from: container,
                     forKeys: [.assignedUsers, .assignedUserIDs]
                 )
+            }
+
+            public var hasAudioDescription: Bool {
+                audioDescriptionID != nil || audioDescription != nil
             }
 
             public static let empty = Logable(id: "0")
@@ -464,6 +479,48 @@ public extension Portfolio {
                 self.canComment = canComment
                 self.canStar = canStar
                 self.canExport = canExport
+            }
+        }
+
+        public struct AudioDescription: Decodable, Equatable, Sendable {
+            public let id: String?
+            public let signedID: String?
+            public let url: String?
+            public let duration: Double?
+
+            public init(
+                id: String? = nil,
+                signedID: String? = nil,
+                url: String? = nil,
+                duration: Double? = nil
+            ) {
+                self.id = id
+                self.signedID = signedID
+                self.url = url
+                self.duration = duration
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case signedID = "signed_id"
+                case url
+                case duration
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = try container.decodeIfPresent(String.self, forKey: .id)
+                signedID = try container.decodeIfPresent(String.self, forKey: .signedID)
+                url = try container.decodeIfPresent(String.self, forKey: .url)
+
+                if let doubleDuration = try? container.decodeIfPresent(Double.self, forKey: .duration) {
+                    duration = doubleDuration
+                } else if let stringDuration = try? container.decodeIfPresent(String.self, forKey: .duration),
+                          let converted = Double(stringDuration) {
+                    duration = converted
+                } else {
+                    duration = nil
+                }
             }
         }
 

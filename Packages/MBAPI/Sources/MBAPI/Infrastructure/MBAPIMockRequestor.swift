@@ -177,4 +177,27 @@ final class MBAPIMockRequestor: MBEndpointRequesting, Sendable {
             )
         }
     }
+
+    func upload(
+        to absoluteURL: URL,
+        method: String,
+        headers: [String: String],
+        body: Data
+    ) async throws {
+        let responseType = "NoResponse"
+
+        guard let data = await demoDataStore.snapshotData(for: absoluteURL, responseType: responseType) else {
+            logger.error("Mock fixture not found for \(absoluteURL.absoluteString, privacy: .public)")
+            throw MBMockClientError.fixtureNotFound(
+                endpointPath: absoluteURL.path,
+                responseType: responseType,
+                requestURL: absoluteURL.absoluteString
+            )
+        }
+
+        _ = data
+        _ = method
+        _ = headers
+        _ = body
+    }
 }

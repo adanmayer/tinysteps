@@ -21,6 +21,18 @@ public protocol MBPortfolioEndpoint: Sendable {
         mimeType: String
     ) async throws -> Portfolio.UploadedPhoto
 
+    func uploadAsset(
+        in context: MBSessionContext,
+        fileData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> Portfolio.UploadedAsset
+
+    func createDirectUpload(
+        in context: MBSessionContext,
+        payload: Portfolio.DirectUploadRequest
+    ) async throws -> Portfolio.DirectUploadResponse
+
     func loadClassPortfolioSettings(
         in context: MBSessionContext,
         programID: String
@@ -88,6 +100,40 @@ public struct MBPortfolioEndpointClient: MBPortfolioEndpoint, Sendable {
                 mimeType: mimeType,
                 data: imageData
             )
+        )
+    }
+
+    public func uploadAsset(
+        in context: MBSessionContext,
+        fileData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> Portfolio.UploadedAsset {
+        try await requester.uploadMultipart(
+            as: Portfolio.UploadedAsset.self,
+            to: "assets",
+            in: context,
+            query: [:],
+            file: MBMultipartFile(
+                fieldName: "file",
+                filename: filename,
+                mimeType: mimeType,
+                data: fileData
+            )
+        )
+    }
+
+    public func createDirectUpload(
+        in context: MBSessionContext,
+        payload: Portfolio.DirectUploadRequest
+    ) async throws -> Portfolio.DirectUploadResponse {
+        try await requester.send(
+            Portfolio.DirectUploadResponse.self,
+            to: "\(context.role.urlPathComponent)/direct_uploads",
+            in: context,
+            method: "POST",
+            query: [:],
+            body: payload
         )
     }
 

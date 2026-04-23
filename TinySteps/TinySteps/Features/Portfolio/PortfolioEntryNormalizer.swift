@@ -32,12 +32,17 @@ enum PortfolioEntryNormalizer {
             media: normalizedMedia(for: item, kind: kind, title: title),
             tags: normalizedTags(for: item),
             attributedStudents: normalizedStudents(for: item),
+            childVoicePrompt: normalizedChildVoicePrompt(for: item),
             isAssignedToAllStudents: item.isAssignedToAllStudents,
             sourceStatus: item.status
         )
     }
 
     nonisolated private static func normalizedKind(for item: MBAPI.Portfolio.TimelineItem) -> PortfolioEntryKind {
+        if item.logable.hasAudioDescription {
+            return .childVoice
+        }
+
         let rawKind = [
             item.logable.kind,
             item.logableType
@@ -103,6 +108,8 @@ enum PortfolioEntryNormalizer {
     ) -> String? {
         let text: String?
         switch kind {
+        case .childVoice:
+            text = item.logable.body ?? item.logable.description
         case .note:
             text = item.logable.body ?? item.logable.description
         case .photo, .image, .video, .file, .website, .reflection, .event, .unknown:
@@ -126,6 +133,13 @@ enum PortfolioEntryNormalizer {
             }
 
             return .photo(url: url, altText: title ?? photo.filename)
+        case .childVoice:
+            guard let rawURL = item.logable.audioDescription?.url,
+                  let url = URL(string: rawURL) else {
+                return nil
+            }
+
+            return .audio(url: url, duration: normalizedAudioDurationText(for: item))
         case .video:
             return .video(thumbnailURL: nil, duration: nil)
         case .file:
@@ -196,5 +210,35 @@ enum PortfolioEntryNormalizer {
                 avatarURL: student.avatarURL
             )
         }
+    }
+
+    nonisolated private static func normalizedChildVoicePrompt(
+        for item: MBAPI.Portfolio.TimelineItem
+    ) -> String? {
+        guard item.logable.hasAudioDescription else {
+            return nil
+        }
+
+        let subject = item.explicitAttributedStudents.first?.displayName
+        let baseSubject = subject?.isEmpty == false ? subject! : "A child"
+
+        return "\(baseSubject) wanted to share something."
+    }
+
+    nonisolated private static func normalizedAudioDurationText(
+        for item: MBAPI.Portfolio.TimelineItem
+    ) -> String? {
+        guard let duration = item.logable.audioDescription?.duration,
+              duration.isFinite && duration > 0 else {
+            return nil
+        }
+
+        if duration >= 60 {
+            let minutes = Int(duration) / 60
+            let seconds = Int(duration) % 60
+            return String(format: "%d:%02d", minutes, seconds)
+        }
+
+        return String(format: "%.0fs", duration)
     }
 }

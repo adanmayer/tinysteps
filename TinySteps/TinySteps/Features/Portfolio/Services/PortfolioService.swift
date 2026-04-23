@@ -1,5 +1,6 @@
 import Foundation
 import MBAPI
+import CryptoKit
 
 protocol PortfolioService: Sendable {
     func loadPortfolioTimeline(
@@ -32,6 +33,13 @@ protocol PortfolioService: Sendable {
         for session: AuthSession,
         programID: String
     ) async throws -> MBAPI.Portfolio.Settings
+
+    func uploadAudioDescription(
+        for session: AuthSession,
+        audioData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> String
 }
 
 struct MBPortfolioService: PortfolioService {
@@ -116,6 +124,48 @@ struct MBPortfolioService: PortfolioService {
             programID: programID
         )
     }
+
+    func uploadAudioDescription(
+        for session: AuthSession,
+        audioData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> String {
+        let credentials = try credentialsProvider.credentials(for: session)
+        let context = credentials.sessionContext(childID: nil)
+        let request = MBAPI.Portfolio.DirectUploadRequest(
+            filename: filename,
+            contentType: mimeType,
+            byteSize: audioData.count,
+            checksum: audioData.md5Base64Digest()
+        )
+        let response = try await client.createPortfolioDirectUpload(
+            in: context,
+            payload: request
+        )
+
+        guard let destination = URL(string: response.directUpload.url) else {
+            throw PortfolioServiceError.directUploadResponseMalformed("Missing or invalid direct-upload URL.")
+        }
+
+        var headers = response.directUpload.headers
+        if headers["Content-Length"] == nil {
+            headers["Content-Length"] = String(audioData.count)
+        }
+        headers["Content-Type"] = mimeType
+
+        try await client.uploadToDirectUploadURL(
+            destination,
+            headers: headers,
+            body: audioData
+        )
+
+        guard let signedID = response.signedID, signedID.isEmpty == false else {
+            throw PortfolioServiceError.directUploadResponseMalformed("Missing signed_id from direct-upload response.")
+        }
+
+        return signedID
+    }
 }
 
 extension MBPortfolioService {
@@ -124,5 +174,23 @@ extension MBPortfolioService {
             credentialsProvider: DemoMBAPICredentialsProvider(),
             client: MBMockDataPreviewFactory.replayClient(filePath: filePath)
         )
+    }
+}
+
+private enum PortfolioServiceError: LocalizedError, Sendable {
+    case directUploadResponseMalformed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .directUploadResponseMalformed(let message):
+            message
+        }
+    }
+}
+
+private extension Data {
+    func md5Base64Digest() -> String {
+        let digest = Insecure.MD5.hash(data: self)
+        return Data(digest).base64EncodedString()
     }
 }

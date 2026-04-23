@@ -290,6 +290,15 @@ private struct FakePortfolioService: PortfolioService {
     ) async throws -> MBAPI.Portfolio.Settings {
         MBAPI.Portfolio.Settings(id: "settings")
     }
+
+    func uploadAudioDescription(
+        for session: AuthSession,
+        audioData: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> String {
+        "signed-audio-id"
+    }
 }
 
 private struct FakePortfolioClassesService: ClassesService {

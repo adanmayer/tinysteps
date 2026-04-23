@@ -8,6 +8,7 @@ struct FaceCaptureDraft: Identifiable, Codable, Equatable, Sendable {
     let imageData: Data
     let capturedAt: Date
     let faces: [FaceCaptureDraftFace]
+    let childVoice: ChildVoiceDraft?
 
     init(
         id: UUID = UUID(),
@@ -15,7 +16,8 @@ struct FaceCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         className: String,
         imageData: Data,
         capturedAt: Date = .now,
-        faces: [FaceCaptureDraftFace]
+        faces: [FaceCaptureDraftFace],
+        childVoice: ChildVoiceDraft? = nil
     ) {
         self.id = id
         self.classID = classID
@@ -23,6 +25,7 @@ struct FaceCaptureDraft: Identifiable, Codable, Equatable, Sendable {
         self.imageData = imageData
         self.capturedAt = capturedAt
         self.faces = faces
+        self.childVoice = childVoice
     }
 }
 

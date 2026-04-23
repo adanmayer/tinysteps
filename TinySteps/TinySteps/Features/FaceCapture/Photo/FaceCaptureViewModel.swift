@@ -25,6 +25,7 @@ final class FaceCaptureViewModel: ObservableObject {
     @Published private(set) var isCameraReady = false
     @Published private(set) var selectedFace: FaceCaptureFace?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var childVoiceDraft: ChildVoiceDraft?
 
     let session: AuthSession
     let classID: String
@@ -90,6 +91,52 @@ final class FaceCaptureViewModel: ObservableObject {
 
     var canKeep: Bool {
         state == .reviewing && capturedImage != nil
+    }
+
+    var childVoiceTarget: ChildVoiceChild? {
+        let hasUnknownFace = detectedFaces.contains { face in
+            if case .unknown = face.label {
+                return true
+            }
+            return false
+        }
+        guard hasUnknownFace == false else {
+            return nil
+        }
+
+        var linkedChildren: [String: ChildVoiceChild] = [:]
+        for face in detectedFaces {
+            guard case .matched(let studentKey, _, _) = face.label else {
+                continue
+            }
+
+            guard linkedChildren[studentKey] == nil else {
+                continue
+            }
+
+            guard let student = candidateStudents.first(where: { $0.studentKey == studentKey }) else {
+                continue
+            }
+            guard let userID = student.userID else {
+                continue
+            }
+
+            linkedChildren[studentKey] = ChildVoiceChild(
+                studentKey: student.studentKey,
+                userID: userID,
+                displayName: student.displayName
+            )
+        }
+
+        guard linkedChildren.count == 1 else {
+            return nil
+        }
+
+        return linkedChildren.values.first
+    }
+
+    var isChildVoiceButtonEnabled: Bool {
+        childVoiceTarget != nil
     }
 
     func start() {
@@ -167,6 +214,7 @@ final class FaceCaptureViewModel: ObservableObject {
         selectedFace = nil
         capturedImage = nil
         detectedFaces = []
+        childVoiceDraft = nil
         errorMessage = nil
         Task {
             await camera.start()
@@ -232,7 +280,8 @@ final class FaceCaptureViewModel: ObservableObject {
                     studentKey: studentKey,
                     userID: userID
                 )
-            }
+            },
+            childVoice: childVoiceDraft
         )
 
         Task {
@@ -250,8 +299,22 @@ final class FaceCaptureViewModel: ObservableObject {
         selectedFace = nil
         capturedImage = nil
         detectedFaces = []
+        childVoiceDraft = nil
         errorMessage = nil
         isCameraReady = false
+    }
+
+    func setChildVoiceDraft(_ draft: ChildVoiceDraft) {
+        if let existing = childVoiceDraft,
+           existing.localFilename != draft.localFilename {
+            let recorder = ChildVoiceAudioRecorder()
+            try? recorder.deleteRecording(filename: existing.localFilename)
+        }
+        childVoiceDraft = draft
+    }
+
+    func removeChildVoiceDraft() {
+        childVoiceDraft = nil
     }
 
     func selectedStudentDisplayName(for key: String?) -> String {

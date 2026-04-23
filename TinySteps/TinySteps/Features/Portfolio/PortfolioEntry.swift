@@ -29,6 +29,7 @@ enum PortfolioEntryKind: String, CaseIterable, Sendable {
     case photo = "Photo"
     case image = "Image"
     case video = "Video"
+    case childVoice = "Child Voice"
     case file = "File"
     case website = "Website"
     case reflection = "Reflection"
@@ -45,6 +46,8 @@ enum PortfolioEntryKind: String, CaseIterable, Sendable {
             return "photo.fill"
         case .video:
             return "play.rectangle.fill"
+        case .childVoice:
+            return "waveform"
         case .file:
             return "doc.fill"
         case .website:
@@ -62,6 +65,7 @@ enum PortfolioEntryKind: String, CaseIterable, Sendable {
 enum PortfolioEntryMedia: Equatable, Sendable {
     case photo(url: URL, altText: String?)
     case video(thumbnailURL: URL?, duration: String?)
+    case audio(url: URL, duration: String?)
     case file(title: String, subtitle: String?, thumbnailURL: URL?)
     case website(url: URL, title: String?, faviconURL: URL?)
 }
@@ -95,6 +99,7 @@ struct PortfolioEntry: Identifiable, Equatable, Sendable {
     let media: PortfolioEntryMedia?
     let tags: [String]
     let attributedStudents: [PortfolioStudent]
+    let childVoicePrompt: String?
     let isAssignedToAllStudents: Bool
     let sourceStatus: String?
 

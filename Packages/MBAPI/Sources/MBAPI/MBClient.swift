@@ -71,6 +71,13 @@ protocol MBEndpointRequesting: Sendable {
         query: [String: String],
         file: MBMultipartFile
     ) async throws -> Response
+
+    func upload(
+        to absoluteURL: URL,
+        method: String,
+        headers: [String: String],
+        body: Data
+    ) async throws
 }
 
 struct MBMultipartFile: Sendable {
@@ -137,6 +144,13 @@ public protocol MBClient: Sendable {
     var members: any MBMembersEndpoint { get }
     var unitComponents: any MBUnitComponentsEndpoint { get }
     var schoolThemes: any MBSchoolThemesEndpoint { get }
+
+    func upload(
+        to absoluteURL: URL,
+        method: String,
+        headers: [String: String],
+        body: Data
+    ) async throws
 }
 
 public extension MBClient {
@@ -287,6 +301,20 @@ public extension MBClient {
         )
     }
 
+    public func uploadPortfolioAsset(
+        in context: MBSessionContext,
+        fileData: Data,
+        filename: String = "portfolio-asset.m4a",
+        mimeType: String = "audio/m4a"
+    ) async throws -> Portfolio.UploadedAsset {
+        try await portfolio.uploadAsset(
+            in: context,
+            fileData: fileData,
+            filename: filename,
+            mimeType: mimeType
+        )
+    }
+
     public func loadClassPortfolioSettings(
         in context: MBSessionContext,
         programID: String
@@ -295,6 +323,22 @@ public extension MBClient {
             in: context,
             programID: programID
         )
+    }
+
+    public func createPortfolioDirectUpload(
+        in context: MBSessionContext,
+        payload: Portfolio.DirectUploadRequest
+    ) async throws -> Portfolio.DirectUploadResponse {
+        try await portfolio.createDirectUpload(in: context, payload: payload)
+    }
+
+    public func uploadToDirectUploadURL(
+        _ absoluteURL: URL,
+        method: String = "PUT",
+        headers: [String: String],
+        body: Data
+    ) async throws {
+        try await self.upload(to: absoluteURL, method: method, headers: headers, body: body)
     }
 
     public func loadStandardsComponents(
@@ -360,6 +404,20 @@ public struct MBLiveClient: MBClient {
         self.unitComponents = MBUnitComponentsEndpointClient(requester: requestor)
         self.schoolThemes = MBSchoolThemesEndpointClient(requester: requestor)
     }
+
+    public func upload(
+        to absoluteURL: URL,
+        method: String,
+        headers: [String: String],
+        body: Data
+    ) async throws {
+        try await requestor.upload(
+            to: absoluteURL,
+            method: method,
+            headers: headers,
+            body: body
+        )
+    }
 }
 
 public struct MBMockClient: MBClient {
@@ -397,5 +455,19 @@ public struct MBMockClient: MBClient {
         self.members = MBMembersEndpointClient(requester: requestor)
         self.unitComponents = MBUnitComponentsEndpointClient(requester: requestor)
         self.schoolThemes = MBSchoolThemesEndpointClient(requester: requestor)
+    }
+
+    public func upload(
+        to absoluteURL: URL,
+        method: String,
+        headers: [String: String],
+        body: Data
+    ) async throws {
+        try await requestor.upload(
+            to: absoluteURL,
+            method: method,
+            headers: headers,
+            body: body
+        )
     }
 }

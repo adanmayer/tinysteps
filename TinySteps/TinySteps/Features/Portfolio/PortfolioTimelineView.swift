@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import MBAPI
 
 struct PortfolioTimelineView: View {
@@ -697,6 +698,97 @@ private struct PortfolioStudentFilterButton: View {
     }
 }
 
+private struct PortfolioEntryAudioPlayerView: View {
+    let url: URL
+    let durationText: String?
+
+    @State private var player: AVPlayer?
+    @State private var isPlaying = false
+    @State private var endObserver: NSObjectProtocol?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: togglePlayback) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 52, height: 52)
+                    .background(Color(hex: "#6B8659"))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Child voice")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(hex: "#3A342E"))
+
+                if let durationText {
+                    Text(durationText)
+                        .font(.caption)
+                        .foregroundStyle(Color(hex: "#6E6456"))
+                }
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .background(Color(hex: "#F5EDE0"))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .onDisappear {
+            stopPlayback()
+            teardownPlayer()
+        }
+    }
+
+    private func setupPlayerIfNeeded() {
+        guard player == nil else {
+            return
+        }
+
+        let item = AVPlayerItem(url: url)
+        player = AVPlayer(playerItem: item)
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { _ in
+            isPlaying = false
+        }
+    }
+
+    private func togglePlayback() {
+        setupPlayerIfNeeded()
+        guard let player else {
+            return
+        }
+
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+            return
+        }
+
+        player.play()
+        isPlaying = true
+    }
+
+    private func stopPlayback() {
+        player?.pause()
+        isPlaying = false
+        player?.seek(to: .zero)
+    }
+
+    private func teardownPlayer() {
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
+            endObserver = nil
+        }
+        player?.pause()
+        player = nil
+    }
+}
+
 private struct PortfolioEntryCard: View {
     let entry: PortfolioEntry
 
@@ -761,6 +853,8 @@ private struct PortfolioEntryCard: View {
             .frame(maxWidth: .infinity)
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 16))
+        case .audio(let url, let duration):
+            PortfolioEntryAudioPlayerView(url: url, durationText: duration)
         case .video:
             mediaFallback(systemImage: "play.rectangle.fill", text: "Video")
         case .file(let title, let subtitle, _):
@@ -774,7 +868,7 @@ private struct PortfolioEntryCard: View {
 
     @ViewBuilder
     private var bodyText: some View {
-        if let bodyText = entry.bodyText {
+        if let bodyText = entry.bodyText ?? entry.childVoicePrompt {
             Text(bodyText)
                 .font(.body)
                 .lineSpacing(7)

@@ -70,6 +70,7 @@ struct PortfolioNoteCreatePayload: Encodable, Sendable {
     let body: String
     let startDate: String
     let presetID: String
+    let audioDescriptionID: String?
     let allowedUserRoles: [String]
     let notifyViaEmail: Bool
     let assignedUserIDs: [Int]
@@ -81,6 +82,7 @@ struct PortfolioNoteCreatePayload: Encodable, Sendable {
         case body
         case startDate = "start_date"
         case presetID = "preset_id"
+        case audioDescriptionID = "audio_description_id"
         case allowedUserRoles = "allowed_user_roles"
         case notifyViaEmail = "notify_via_email"
         case assignedUserIDs = "assigned_user_ids"
@@ -93,6 +95,7 @@ struct PortfolioNoteCreatePayload: Encodable, Sendable {
         try container.encode(body, forKey: .body)
         try container.encode(startDate, forKey: .startDate)
         try container.encode(presetID, forKey: .presetID)
+        try container.encodeIfPresent(audioDescriptionID, forKey: .audioDescriptionID)
         try container.encode(allowedUserRoles, forKey: .allowedUserRoles)
         try container.encode(notifyViaEmail, forKey: .notifyViaEmail)
         try container.encode(assignedUserIDs, forKey: .assignedUserIDs)
@@ -106,6 +109,7 @@ struct PortfolioPhotoCreatePayload: Encodable, Sendable {
     let description: String
     let startDate: String
     let photoIDs: [Int]
+    let audioDescriptionID: String?
     let allowedUserRoles: [String]
     let notifyViaEmail: Bool
     let assignedUserIDs: [Int]
@@ -117,6 +121,7 @@ struct PortfolioPhotoCreatePayload: Encodable, Sendable {
         case description
         case startDate = "start_date"
         case photoIDs = "photo_ids"
+        case audioDescriptionID = "audio_description_id"
         case allowedUserRoles = "allowed_user_roles"
         case notifyViaEmail = "notify_via_email"
         case assignedUserIDs = "assigned_user_ids"
@@ -129,6 +134,7 @@ struct PortfolioPhotoCreatePayload: Encodable, Sendable {
         try container.encode(description, forKey: .description)
         try container.encode(startDate, forKey: .startDate)
         try container.encode(photoIDs, forKey: .photoIDs)
+        try container.encodeIfPresent(audioDescriptionID, forKey: .audioDescriptionID)
         try container.encode(allowedUserRoles, forKey: .allowedUserRoles)
         try container.encode(notifyViaEmail, forKey: .notifyViaEmail)
         try container.encode(assignedUserIDs, forKey: .assignedUserIDs)
@@ -142,7 +148,8 @@ enum PortfolioPublishPayloadFactory {
         for draft: ObservationCaptureDraft,
         presetID: String,
         assignedUserIDs: [Int],
-        outcome: PortfolioOutcomePayload
+        outcome: PortfolioOutcomePayload,
+        audioDescriptionID: String? = nil
     ) throws -> PortfolioNoteCreatePayload {
         let body = draft.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard body.isEmpty == false else {
@@ -154,6 +161,7 @@ enum PortfolioPublishPayloadFactory {
             body: body,
             startDate: localDateString(from: draft.createdAt),
             presetID: presetID,
+            audioDescriptionID: audioDescriptionID,
             allowedUserRoles: defaultAllowedUserRoles,
             notifyViaEmail: false,
             assignedUserIDs: assignedUserIDs,
@@ -165,13 +173,15 @@ enum PortfolioPublishPayloadFactory {
     static func photoPayload(
         for draft: FaceCaptureDraft,
         photoID: Int,
-        assignedUserIDs: [Int]
+        assignedUserIDs: [Int],
+        audioDescriptionID: String? = nil
     ) -> PortfolioPhotoCreatePayload {
         PortfolioPhotoCreatePayload(
             title: "Observation photo",
             description: "",
             startDate: localDateString(from: draft.capturedAt),
             photoIDs: [photoID],
+            audioDescriptionID: audioDescriptionID,
             allowedUserRoles: defaultAllowedUserRoles,
             notifyViaEmail: false,
             assignedUserIDs: assignedUserIDs,

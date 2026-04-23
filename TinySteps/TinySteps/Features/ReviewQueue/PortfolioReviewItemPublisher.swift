@@ -94,16 +94,48 @@ struct MBPortfolioReviewItemPublisher: ObservationDraftPublishing {
             throw ObservationDraftPublishError.validation("The server did not return a publishable photo id. This photo stays on this device.")
         }
 
+        let audioDescriptionID = try await resolveAudioDescriptionID(
+            for: draft,
+            session: session
+        )
         let payload = PortfolioPublishPayloadFactory.photoPayload(
             for: draft,
             photoID: photoID,
-            assignedUserIDs: assignedUserIDs
+            assignedUserIDs: assignedUserIDs,
+            audioDescriptionID: audioDescriptionID
         )
 
         _ = try await portfolioService.createClassPhoto(
             for: session,
             classID: draft.classID,
             payload: payload
+        )
+
+        if let childVoice = draft.childVoice {
+            let recorder = ChildVoiceAudioRecorder()
+            try? recorder.deleteRecording(filename: childVoice.localFilename)
+        }
+    }
+
+    private func resolveAudioDescriptionID(
+        for draft: FaceCaptureDraft,
+        session: AuthSession
+    ) async throws -> String? {
+        guard let childVoice = draft.childVoice else {
+            return nil
+        }
+
+        if let uploadedID = childVoice.uploadedAudioDescriptionID {
+            return uploadedID
+        }
+
+        let recorder = ChildVoiceAudioRecorder()
+        let audioData = try recorder.recordingData(for: childVoice.localFilename)
+        return try await portfolioService.uploadAudioDescription(
+            for: session,
+            audioData: audioData,
+            filename: childVoice.localFilename,
+            mimeType: "audio/mp4"
         )
     }
 

@@ -7,6 +7,7 @@ struct FaceCaptureView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: FaceCaptureViewModel
     @State private var isShowingAssignment = false
+    @State private var isShowingChildVoiceCapture = false
     private let onSaved: () -> Void
 
     init(
@@ -79,6 +80,22 @@ struct FaceCaptureView: View {
                         }
                     }
                     .presentationDetents([.medium])
+                }
+            }
+            .sheet(isPresented: $isShowingChildVoiceCapture) {
+                if let targetChild = viewModel.childVoiceTarget {
+                    ChildVoiceCaptureView(
+                        session: ChildVoiceCaptureSession(
+                            mode: .photoAttachment(
+                                classID: viewModel.classID,
+                                className: viewModel.className,
+                                child: targetChild
+                            )
+                        ),
+                        onSaved: { draft in
+                            viewModel.setChildVoiceDraft(draft)
+                        }
+                    )
                 }
             }
         }
@@ -347,12 +364,12 @@ struct FaceCaptureView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color(hex: "#6E6456"))
 
-            HStack(spacing: 32) {
+            HStack(spacing: 20) {
                 Button(action: {
                     viewModel.retake()
                 }) {
                     Text("Retake")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .frame(height: 68)
                         .frame(maxWidth: .infinity)
                         .foregroundStyle(Color(hex: "#3A342E"))
@@ -366,6 +383,30 @@ struct FaceCaptureView: View {
                 .buttonStyle(.plain)
 
                 Button(action: {
+                    isShowingChildVoiceCapture = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "waveform.circle.fill")
+                        Text(viewModel.childVoiceDraft == nil ? "Capture child voice" : "Replace child voice")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(height: 68)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(Color(hex: "#3A342E"))
+                    .background(Color(hex: "#F1F5EA"))
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(Color(hex: "#D6DECD"), lineWidth: 1.2)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!viewModel.isChildVoiceButtonEnabled)
+                .opacity(viewModel.isChildVoiceButtonEnabled ? 1 : 0.5)
+
+                Button(action: {
                     viewModel.keep()
                 }) {
                     HStack(spacing: 12) {
@@ -373,7 +414,7 @@ struct FaceCaptureView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 22, weight: .semibold))
                     }
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .frame(height: 68)
                     .frame(maxWidth: .infinity)
                     .foregroundStyle(.white)
